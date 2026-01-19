@@ -1,0 +1,13 @@
+================================================================================
+SUMMARY COMPARISON: Helpdesk - redo_activity_2
+================================================================================
+
+Metric                         Camargo LSTM         Normal Model         Difference     
+--------------------------------------------------------------------------------
+Activity Match Rate            0.3890               0.3890               ≈ 0.0000       
+Length Match Rate              0.3956               0.3956               ≈ 0.0000       
+Top k Activity Match Rate      0.3216               0.3216               ≈ 0.0000       
+
+Total Evaluations:
+  Camargo LSTM: 455
+  Normal Model: 455
