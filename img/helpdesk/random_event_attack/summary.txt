@@ -1,0 +1,12 @@
+================================================================================
+SUMMARY COMPARISON: helpdesk - random_event_attack
+================================================================================
+
+Metric                         Model 1             
+--------------------------------------------------------------------------------
+Activity Match Rate            0.8999              
+Length Match Rate              0.9057              
+Top k Activity Match Rate      0.8983              
+
+Total Evaluations:
+  Model 1: 1898
