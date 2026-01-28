@@ -192,18 +192,40 @@ class ProbabilisticEvaluation(Evaluation):
                 yield self._evaluate_single(case_name, prefix_len, prefix, suffix, include_model_states)
 
     ###ADDED
-    def evaluate_with_predifined_prefix(self, random_order=False, include_model_states=False):
+    # def evaluate_with_predifined_prefix(self, random_order=False, include_model_states=False):
+    #     """
+    #     Evaluate using predefined prefix-suffix pairs instead of generating them from cases.
+    #     """
+    #     # Create list of indices for potential randomization
+    #     # if random_order:
+    #     #     items = random.sample(items, len(items))
+        
+    #     # Iterate over predefined prefix-suffix pairs
+    #     for (case_name, prefix_len), (prefix, suffix) in tqdm(self.dataset_predefined_prefixes.items()):
+    #         yield self._evaluate_single(case_name, prefix_len, prefix, suffix, include_model_states)
+    ###ADDED
+
+    def evaluate_with_predifined_prefix(self, random_order=False, include_model_states=False, use_multiprocessing=True):
         """
         Evaluate using predefined prefix-suffix pairs instead of generating them from cases.
-        """
-        # Create list of indices for potential randomization
-        # if random_order:
-        #     items = random.sample(items, len(items))
         
-        # Iterate over predefined prefix-suffix pairs
-        for (case_name, prefix_len), (prefix, suffix) in tqdm(self.dataset_predefined_prefixes.items()):
+        Args:
+            random_order: Whether to randomize the order of evaluation
+            include_model_states: Whether to include model states in the output
+            use_multiprocessing: Whether to use multiprocessing (if False, runs sequentially)
+        """
+        items = list(self.dataset_predefined_prefixes.items())
+        
+        if random_order:
+            items = random.sample(items, len(items))
+        
+        # Sequential processing (original behavior)
+        # Note: Multiprocessing is disabled due to PyTorch tensor file descriptor issues
+        # PyTorch tensors create file descriptors when pickled for multiprocessing,
+        # which causes "too many open files" errors even with small numbers of processes.
+        # Sequential processing avoids this issue entirely.
+        for (case_name, prefix_len), (prefix, suffix) in tqdm(items, total=len(items)):
             yield self._evaluate_single(case_name, prefix_len, prefix, suffix, include_model_states)
-    ###ADDED
 
     def evaluate_multi_processing(self, random_order=False, include_model_states=False):
         case_items = list(self.cases.items())
