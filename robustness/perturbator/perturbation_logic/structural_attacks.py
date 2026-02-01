@@ -296,6 +296,7 @@ def generate_loop_augmentation(
     properties: Dict[str, Any],
     *,
     min_suffix_size: int = 2,
+    max_matches_per_loop: int = 1,
     save_path: Optional[str] = None,
     save_every_n: Optional[int] = None,
     eos_value: str = "EOS",
@@ -305,13 +306,15 @@ def generate_loop_augmentation(
 ]:
     """
     Find loops in the first half of the df (by cases), greedily match and insert
-    them into the first matching case in the second half, and fill val_loops_clean
-    and val_loops_pert. Time shifting is applied only to val_loops_pert.
+    them into matching cases in the second half (up to max_matches_per_loop per loop),
+    and fill val_loops_clean and val_loops_pert. Time shifting is applied only to val_loops_pert.
 
     Args:
         df: Readable dataframe with EOS rows (output of get_train_test_val_datasets).
         properties: Event log properties dict.
         min_suffix_size: Minimum non-EOS events required in suffix after insertion.
+        max_matches_per_loop: Maximum number of cases in the second half each loop is matched to
+            (e.g. 10 means each loop is matched with up to 10 event logs found in the second half).
         save_path: If set with save_every_n, save checkpoint dicts to this directory.
         save_every_n: Save val_loops_clean and val_loops_pert every N successful matches.
         eos_value: Value identifying EOS rows.
@@ -366,9 +369,12 @@ def generate_loop_augmentation(
     while loop_index < len(loops_from_first):
         anchor, loop_body = loops_from_first[loop_index]
         loop_index += 1
+        matches_for_this_loop = 0
 
-        # First case in second half where anchor appears and insertion is valid
+        # Up to max_matches_per_loop cases in second half where anchor appears and insertion is valid
         for case_id, target_group in second_half_case_list:
+            if matches_for_this_loop >= max_matches_per_loop:
+                break
             target_group = target_group.reset_index(drop=True)
             non_eos_mask = target_group[activity_col] != eos_value
             non_eos_indices = [i for i, m in enumerate(non_eos_mask) if m]
@@ -446,6 +452,7 @@ def generate_loop_augmentation(
             val_loops_clean[key] = (prefix_clean_df, suffix_df)
             val_loops_pert[key] = (prefix_pert_df, suffix_pert)
             match_count += 1
+            matches_for_this_loop += 1
 
             if save_path and save_every_n is not None and match_count % save_every_n == 0:
                 os.makedirs(save_path, exist_ok=True)
@@ -453,7 +460,6 @@ def generate_loop_augmentation(
                     pickle.dump(val_loops_clean, f)
                 with open(os.path.join(save_path, "val_loops_pert.pkl"), "wb") as f:
                     pickle.dump(val_loops_pert, f)
-            break
-        # If no match found for this loop, continue to next loop (loop_index already advanced)
+        # Continue to next loop (loop_index already advanced)
 
     return val_loops_clean, val_loops_pert
