@@ -1,0 +1,13 @@
+================================================================================
+SUMMARY COMPARISON: helpdesk_with_benchmark - redo_activity
+================================================================================
+
+Metric                         Model 1              Model 2              Difference     
+--------------------------------------------------------------------------------
+Activity Match Rate            0.3936               0.7495               -0.3559        
+Length Match Rate              0.4015               0.7495               -0.3480        
+Top k Activity Match Rate      0.6937               0.4758               +0.2179        
+
+Total Evaluations:
+  Model 1: 1898
+  Model 2: 978

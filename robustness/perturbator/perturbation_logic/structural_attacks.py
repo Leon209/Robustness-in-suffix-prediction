@@ -1,6 +1,8 @@
+import os
+import pickle
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 
 
 def _update_day_and_seconds_features(
@@ -231,3 +233,227 @@ def redo_last_activity_of_prefix(
             previous_event = current_event
 
     return updated_prefix, updated_suffix
+
+
+# --- Loop augmentation ---
+
+def _detect_loops_in_sequence(
+    activity_sequence: List[str],
+) -> List[Tuple[int, int]]:
+    """
+    Detect all loops in an activity sequence.
+    A loop is a subsequence where the first and last activities are the same,
+    with at least one event in between (e.g. A,B,C,B is a loop; A,B,B,D is not).
+
+    Returns:
+        List of (start_index, end_index) tuples, end_index inclusive.
+    """
+    loops = []
+    n = len(activity_sequence)
+    for start in range(n):
+        start_activity = activity_sequence[start]
+        for end in range(start + 1, n):
+            if activity_sequence[end] == start_activity and end - start >= 2:
+                loops.append((start, end))
+    return loops
+
+
+def _apply_first_inserted_event_time(
+    c_event: pd.Series,
+    b_event: pd.Series,
+    properties: Dict[str, Any],
+) -> None:
+    """
+    Set time columns for the first inserted event C (after anchor B) per user spec.
+    Modifies c_event in place.
+    """
+    event_elapsed_col = properties.get("time_since_last_event_column")
+    case_elapsed_col = properties.get("time_since_case_start_column")
+    seconds_col = properties.get("seconds_in_day_column")
+    day_col = properties.get("day_in_week_column")
+    if not event_elapsed_col or event_elapsed_col not in b_event.index:
+        return
+    b_elapsed = b_event[event_elapsed_col]
+    if pd.isna(b_elapsed):
+        return
+    if event_elapsed_col in c_event.index:
+        c_event[event_elapsed_col] = b_elapsed
+    if case_elapsed_col and case_elapsed_col in c_event.index and case_elapsed_col in b_event.index:
+        if not pd.isna(b_event[case_elapsed_col]):
+            c_event[case_elapsed_col] = float(b_event[case_elapsed_col] + b_elapsed)
+    if seconds_col and seconds_col in c_event.index and seconds_col in b_event.index:
+        b_sec = b_event[seconds_col] if not pd.isna(b_event.get(seconds_col)) else 0.0
+        c_event[seconds_col] = float((b_sec + b_elapsed) % 86400)
+    if day_col and day_col in c_event.index and day_col in b_event.index and seconds_col in b_event.index:
+        b_sec = b_event[seconds_col] if not pd.isna(b_event.get(seconds_col)) else 0.0
+        b_day = b_event[day_col] if not pd.isna(b_event.get(day_col)) else 0
+        days_to_add = round((b_sec + b_elapsed) / 86400.0)
+        c_event[day_col] = float((b_day + days_to_add) % 7)
+
+
+def generate_loop_augmentation(
+    df: pd.DataFrame,
+    properties: Dict[str, Any],
+    *,
+    min_suffix_size: int = 2,
+    save_path: Optional[str] = None,
+    save_every_n: Optional[int] = None,
+    eos_value: str = "EOS",
+) -> Tuple[
+    Dict[Tuple[str, int], Tuple[pd.DataFrame, pd.DataFrame]],
+    Dict[Tuple[str, int], Tuple[pd.DataFrame, pd.DataFrame]],
+]:
+    """
+    Find loops in the first half of the df (by cases), greedily match and insert
+    them into the first matching case in the second half, and fill val_loops_clean
+    and val_loops_pert. Time shifting is applied only to val_loops_pert.
+
+    Args:
+        df: Readable dataframe with EOS rows (output of get_train_test_val_datasets).
+        properties: Event log properties dict.
+        min_suffix_size: Minimum non-EOS events required in suffix after insertion.
+        save_path: If set with save_every_n, save checkpoint dicts to this directory.
+        save_every_n: Save val_loops_clean and val_loops_pert every N successful matches.
+        eos_value: Value identifying EOS rows.
+
+    Returns:
+        (val_loops_clean, val_loops_pert), each mapping (case_id, prefix_len) -> (prefix_df, suffix_df).
+    """
+    case_col = properties.get("case_name")
+    activity_col = properties.get("concept_name")
+    event_elapsed_col = properties.get("time_since_last_event_column")
+    timestamp_col = properties.get("timestamp_name")
+    if not case_col or not activity_col:
+        return {}, {}
+
+    cases = df[case_col].unique()
+    n_cases = len(cases)
+    half = n_cases // 2
+    first_half_ids = set(cases[:half])
+    second_half_ids = set(cases[half:])
+
+    first_half_df = df[df[case_col].isin(first_half_ids)].copy()
+    second_half_df = df[df[case_col].isin(second_half_ids)].copy()
+
+    # Build list of (anchor_activity, loop_body_df) from first half, in order
+    loops_from_first: List[Tuple[str, pd.DataFrame]] = []
+    for case_id, group in first_half_df.groupby(case_col, sort=False):
+        group = group.reset_index(drop=True)
+        non_eos_mask = group[activity_col] != eos_value
+        non_eos_df = group[non_eos_mask].reset_index(drop=True)
+        if len(non_eos_df) < 2:
+            continue
+        activity_sequence = non_eos_df[activity_col].tolist()
+        loop_indices = _detect_loops_in_sequence(activity_sequence)
+        for start_idx, end_idx in loop_indices:
+            # Loop segment: start..end inclusive. Body to insert: segment without first event.
+            loop_segment = non_eos_df.iloc[start_idx : end_idx + 1].copy()
+            loop_body = loop_segment.iloc[1:].copy().reset_index(drop=True)
+            if loop_body.empty:
+                continue
+            anchor = activity_sequence[start_idx]
+            loops_from_first.append((anchor, loop_body))
+
+    if not loops_from_first:
+        return {}, {}
+
+    val_loops_clean: Dict[Tuple[str, int], Tuple[pd.DataFrame, pd.DataFrame]] = {}
+    val_loops_pert: Dict[Tuple[str, int], Tuple[pd.DataFrame, pd.DataFrame]] = {}
+    match_count = 0
+    loop_index = 0
+    second_half_case_list = list(second_half_df.groupby(case_col, sort=False))
+
+    while loop_index < len(loops_from_first):
+        anchor, loop_body = loops_from_first[loop_index]
+        loop_index += 1
+
+        # First case in second half where anchor appears and insertion is valid
+        for case_id, target_group in second_half_case_list:
+            target_group = target_group.reset_index(drop=True)
+            non_eos_mask = target_group[activity_col] != eos_value
+            non_eos_indices = [i for i, m in enumerate(non_eos_mask) if m]
+            non_eos_df = target_group[non_eos_mask].reset_index(drop=True)
+            if len(non_eos_df) < min_suffix_size + 1:
+                continue
+            # First occurrence of anchor in non-EOS rows
+            match_pos = None
+            for i, idx in enumerate(non_eos_indices):
+                if target_group.iloc[idx][activity_col] == anchor:
+                    match_pos = i
+                    break
+            if match_pos is None:
+                continue
+            # prefix_len_clean = number of non-EOS events up to and including anchor
+            prefix_len_clean = match_pos + 1
+            # Suffix after anchor (non-EOS count) must be >= min_suffix_size
+            suffix_non_eos_count = len(non_eos_indices) - prefix_len_clean
+            if suffix_non_eos_count < min_suffix_size:
+                continue
+            # Avoid overwriting: first match wins
+            key = (str(case_id), prefix_len_clean)
+            if key in val_loops_clean:
+                continue
+
+            # Split target: before anchor (inclusive), after anchor
+            last_prefix_idx = non_eos_indices[prefix_len_clean - 1]
+            split_idx = last_prefix_idx + 1
+            prefix_clean_df = target_group.iloc[:split_idx].copy()
+            suffix_df = target_group.iloc[split_idx:].copy()
+
+            # Build perturbed: prefix_clean + loop_body + suffix, with time updates on body and suffix for pert only
+            loop_body_copy = loop_body.copy()
+            anchor_row = target_group.iloc[last_prefix_idx]
+            # All variables stay from extracted loop; only time columns updated from anchor B
+            first_inserted = loop_body_copy.iloc[0].copy()
+            _convert_numpy_to_python_types(first_inserted)
+            _apply_first_inserted_event_time(first_inserted, anchor_row, properties)
+            loop_body_copy.iloc[0] = first_inserted
+
+            # Chain time for rest of loop body and suffix (pert only)
+            prev = first_inserted
+            for i in range(1, len(loop_body_copy)):
+                cur = loop_body_copy.iloc[i].copy()
+                _convert_numpy_to_python_types(cur)
+                _calculate_time_features(cur, prev, properties)
+                if timestamp_col and timestamp_col in cur.index and event_elapsed_col in cur.index:
+                    if not pd.isna(prev.get(timestamp_col)) and not pd.isna(cur[event_elapsed_col]):
+                        cur[timestamp_col] = prev[timestamp_col] + pd.to_timedelta(
+                            cur[event_elapsed_col], unit="s"
+                        )
+                loop_body_copy.iloc[i] = cur
+                prev = cur
+
+            # Shift suffix events (pert)
+            suffix_pert = suffix_df.copy()
+            if not suffix_pert.empty:
+                for idx in range(len(suffix_pert)):
+                    cur = suffix_pert.iloc[idx].copy()
+                    _convert_numpy_to_python_types(cur)
+                    _calculate_time_features(cur, prev, properties)
+                    if timestamp_col and timestamp_col in cur.index and event_elapsed_col in cur.index:
+                        if not pd.isna(prev.get(timestamp_col)) and not pd.isna(cur[event_elapsed_col]):
+                            cur[timestamp_col] = prev[timestamp_col] + pd.to_timedelta(
+                                cur[event_elapsed_col], unit="s"
+                            )
+                    suffix_pert.iloc[idx] = cur
+                    prev = cur
+
+            prefix_pert_df = pd.concat(
+                [prefix_clean_df, loop_body_copy],
+                ignore_index=True,
+            )
+
+            val_loops_clean[key] = (prefix_clean_df, suffix_df)
+            val_loops_pert[key] = (prefix_pert_df, suffix_pert)
+            match_count += 1
+
+            if save_path and save_every_n is not None and match_count % save_every_n == 0:
+                os.makedirs(save_path, exist_ok=True)
+                with open(os.path.join(save_path, "val_loops_clean.pkl"), "wb") as f:
+                    pickle.dump(val_loops_clean, f)
+                with open(os.path.join(save_path, "val_loops_pert.pkl"), "wb") as f:
+                    pickle.dump(val_loops_pert, f)
+            break
+        # If no match found for this loop, continue to next loop (loop_index already advanced)
+
+    return val_loops_clean, val_loops_pert
