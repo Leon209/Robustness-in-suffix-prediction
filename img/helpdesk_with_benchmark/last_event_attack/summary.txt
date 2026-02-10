@@ -1,12 +1,12 @@
 ================================================================================
-SUMMARY COMPARISON: helpdesk_with_benchmark - redo_activity
+SUMMARY COMPARISON: helpdesk_with_benchmark - last_event_attack
 ================================================================================
 
 Metric                         U-ED-LSTM            Camargo-LSTM         Difference     
 --------------------------------------------------------------------------------
-Activity Match Rate            0.3936               0.7545               -0.3609        
-Length Match Rate              0.4015               0.7550               -0.3535        
-Top k Activity Match Rate      0.6937               0.7836               -0.0899        
+Activity Match Rate            0.8124               0.7223               +0.0901        
+Length Match Rate              0.8203               0.7234               +0.0969        
+Top k Activity Match Rate      0.8734               0.8395               +0.0339        
 
 Total Evaluations:
   U-ED-LSTM: 1898
