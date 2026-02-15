@@ -45,6 +45,12 @@ class GradientAscentAttacker(Evaluation):
         # Get embedding layers from encoder
         self.embedding_layers = self.model.encoder.embeddings
         
+        # Find the index of concept_name in prefix_cat_attributes for EOS preservation
+        if self.concept_name in self.prefix_cat_attributes:
+            self.concept_name_embedding_index = self.prefix_cat_attributes.index(self.concept_name)
+        else:
+            self.concept_name_embedding_index = None
+        
     def _check_prediction_correct(self, predicted_suffix: List[Dict], true_suffix: List[Dict]) -> bool:
         """
         Check if predicted suffix matches true suffix.
@@ -363,14 +369,16 @@ class GradientAscentAttacker(Evaluation):
         # we mainly care about the first prediction
         return predictions, (h, c), z
     
-    def _project_embeddings_to_indices(self, perturbed_embeds, embedding_layer, original_indices):
+    def _project_embeddings_to_indices(self, perturbed_embeds, embedding_layer, original_indices, embedding_index=None):
         """
         Project perturbed embeddings back to nearest valid category indices.
+        Preserves EOS status for concept_name feature to maintain prefix length.
         
         Args:
             perturbed_embeds: Perturbed embedding tensor [batch, seq_len, embed_dim]
             embedding_layer: Embedding layer (nn.Embedding)
             original_indices: Original category indices [batch, seq_len]
+            embedding_index: Index of this embedding in prefix_cat_attributes (None if unknown)
             
         Returns:
             New category indices [batch, seq_len]
@@ -390,11 +398,49 @@ class GradientAscentAttacker(Evaluation):
         # Compute L2 distances
         distances = torch.cdist(perturbed_flat, all_embeds, p=2)  # [batch*seq_len, num_classes]
         
-        # Find nearest class for each position
-        nearest_indices = distances.argmin(dim=1)  # [batch*seq_len]
+        # Check if this is the concept_name embedding (to preserve EOS status)
+        is_concept_name = (embedding_index is not None and 
+                          self.concept_name_embedding_index is not None and
+                          embedding_index == self.concept_name_embedding_index)
         
-        # Reshape back
-        nearest_indices = nearest_indices.view(batch_size, seq_len)
+        if is_concept_name:
+            # Preserve EOS status for concept_name to maintain prefix length
+            # Reshape original_indices for element-wise comparison
+            original_flat = original_indices.view(-1)  # [batch*seq_len]
+            
+            # Find nearest class for each position
+            nearest_indices_flat = distances.argmin(dim=1)  # [batch*seq_len]
+            
+            # Preserve EOS status:
+            # - If original was EOS, keep it as EOS
+            # - If original was not EOS, find nearest non-EOS class
+            eos_mask = (original_flat == self.eos_id)
+            
+            # For non-EOS positions, mask out EOS from distance computation
+            # Set EOS distances to a very large value so they won't be selected
+            distances_masked = distances.clone()
+            # Use a large value that's much larger than any real distance
+            if distances.numel() > 0:
+                max_distance = distances.max()
+                large_value = max_distance * 1000.0 + 1.0
+            else:
+                large_value = torch.tensor(1e10, device=distances.device, dtype=distances.dtype)
+            distances_masked[:, self.eos_id] = large_value
+            
+            # Find nearest non-EOS class for non-EOS positions
+            nearest_non_eos_flat = distances_masked.argmin(dim=1)  # [batch*seq_len]
+            
+            # Combine: use EOS where original was EOS, otherwise use nearest non-EOS
+            nearest_indices_flat = torch.where(eos_mask, 
+                                               torch.full_like(nearest_indices_flat, self.eos_id),
+                                               nearest_non_eos_flat)
+            
+            # Reshape back
+            nearest_indices = nearest_indices_flat.view(batch_size, seq_len)
+        else:
+            # For non-concept_name features, use standard projection
+            nearest_indices = distances.argmin(dim=1)  # [batch*seq_len]
+            nearest_indices = nearest_indices.view(batch_size, seq_len)
         
         return nearest_indices
     
@@ -456,7 +502,7 @@ class GradientAscentAttacker(Evaluation):
         # Create embedding perturbations
         embedding_perturbations = []
         base_embeddings = []
-        for i, (cat_tensor, embed_layer) in enumerate(zip(perturbed_prefix[0], self.embedding_layers)):
+        for i, (cat_tensor, embed_layer) in enumerate(zip(prefix[0], self.embedding_layers)):
             # Get base embeddings
             base_embeds = embed_layer(cat_tensor)  # [batch, seq_len, embed_dim]
             base_embeddings.append(base_embeds)
@@ -631,7 +677,7 @@ class GradientAscentAttacker(Evaluation):
                             zip(perturbed_embeddings, self.embedding_layers)
                         ):
                             check_indices = self._project_embeddings_to_indices(
-                                pert_emb.detach(), embed_layer, perturbed_prefix[0][i]
+                                pert_emb.detach(), embed_layer, prefix[0][i], embedding_index=i
                             )
                             check_prefix[0][i] = check_indices
                     
@@ -650,7 +696,7 @@ class GradientAscentAttacker(Evaluation):
                                 zip(perturbed_embeddings, self.embedding_layers)
                             ):
                                 final_indices = self._project_embeddings_to_indices(
-                                    pert_emb.detach(), embed_layer, perturbed_prefix[0][i]
+                                    pert_emb.detach(), embed_layer, prefix[0][i], embedding_index=i
                                 )
                                 final_prefix[0][i] = final_indices
                         
@@ -679,7 +725,7 @@ class GradientAscentAttacker(Evaluation):
                 zip(final_perturbed_embeddings, self.embedding_layers)
             ):
                 final_indices = self._project_embeddings_to_indices(
-                    pert_emb, embed_layer, perturbed_prefix[0][i]
+                    pert_emb, embed_layer, prefix[0][i], embedding_index=i
                 )
                 final_prefix[0][i] = final_indices
         

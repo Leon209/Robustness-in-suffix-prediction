@@ -82,18 +82,26 @@ class Evaluation:
     def _get_num_prediction_with_means(self, pred_mean, last_means):
         result = {}
         for c in self.all_num_attributes:
+            key = c + '_mean'
+            # Only process attributes that are actually predicted by the model
+            if key not in pred_mean:
+                continue
             if c in self.growing_num_values:
-                result[c+'_mean'] = torch.max(pred_mean[c+'_mean'], last_means[c+'_mean'])
+                result[key] = torch.max(pred_mean[key], last_means[key])
             else:
-                result[c+'_mean'] = pred_mean[c+'_mean']
+                result[key] = pred_mean[key]
             
         return result
     
     # NEW: Ncessary?
     def _get_num_prediction_with_vars(self, pred_vars):
         result = {}
-        for c in self.all_num_attributes:   
-            result[c+'_var'] = pred_vars[c+'_var']
+        for c in self.all_num_attributes:
+            key = c + '_var'
+            # Only process attributes that are actually predicted by the model
+            if key not in pred_vars:
+                continue
+            result[key] = pred_vars[key]
         return result
 
     def _disable_model_dropout(self, model):
