@@ -121,8 +121,9 @@ def plot_comparison_chart(
     ax2 = ax1.twinx()
     total_counts = [sum(counts[i] for counts in model_counts) 
                    for i in range(len(common_prefix_lengths))]
-    ax2.bar(common_prefix_lengths, total_counts, alpha=0.15, color='gray',
-            width=0.6, label='Total instances')
+    ax2.plot(common_prefix_lengths, total_counts,
+             linestyle='--', color='gray', label='# instances')
+    ax2.fill_between(common_prefix_lengths, total_counts, color='gray', alpha=0.3)
     
     # Style axes
     ax1.set_xlabel('prefix len', labelpad=0.5)
@@ -226,8 +227,9 @@ def plot_clean_pert_comparison(
     ax2 = ax1.twinx()
     total_counts = [sum(counts[i] for counts in model_counts) 
                    for i in range(len(common_prefix_lengths))]
-    ax2.bar(common_prefix_lengths, total_counts, alpha=0.15, color='gray',
-            width=0.6, label='Total instances')
+    ax2.plot(common_prefix_lengths, total_counts,
+             linestyle='--', color='gray', label='# instances')
+    ax2.fill_between(common_prefix_lengths, total_counts, color='gray', alpha=0.3)
     
     # Style
     ax1.set_xlabel('prefix len', labelpad=0.5)
@@ -302,8 +304,9 @@ def plot_single_model_chart(
              color=model['color'], alpha=0.9)
     
     ax2 = ax1.twinx()
-    ax2.bar(prefix_lengths, counts, alpha=0.15, color='gray',
-            width=0.6, label='Instances')
+    ax2.plot(prefix_lengths, counts,
+             linestyle='--', color='gray', label='# instances')
+    ax2.fill_between(prefix_lengths, counts, color='gray', alpha=0.3)
     
     ax1.set_xlabel('prefix len', labelpad=0.5)
     ax1.set_ylabel(ylabel, labelpad=0.5)
@@ -422,12 +425,12 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating clean_dls: {e}")
     
-    # 5. DLS Drop
+    # 5. DLS (Clean vs Perturbed)
     try:
-        fig = plot_comparison_chart(
-            models, 'relative_dls_drop',
-            'DLS drop under Perturbation',
-            f'{dataset} - {attack}: DLS Drop'
+        fig = plot_clean_pert_comparison(
+            models, 'clean_dls', 'perturbed_dls',
+            'DLS',
+            f'{dataset} - {attack}: DLS'
         )
         if fig:
             save_path = f"{output_subdir}/dls_drop.png"

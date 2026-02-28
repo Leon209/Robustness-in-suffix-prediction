@@ -16,14 +16,17 @@ global_model = None
 global_samples_per_case = None
 global_cat_categories = None
 global_scaler_params = None
-global_dict_cat_class_id = None
+global_inverted_cat_categories = None  # list of {idx: name} dicts, one per cat feature in model order
+global_concept_name_id = None          # index of activity column in the prefix tensor
+global_cat_feat_names = None           # list of cat feature names in model order
 
 
 def init_worker(model,
                 samples_per_case: int,
                 cat_categories,
                 scaler_params,
-                dict_cat_class_ids,
+                inverted_cat_categories,
+                concept_name_id: int,
                 ):
     """
     Initializer for each worker process, setting global variables.
@@ -33,9 +36,11 @@ def init_worker(model,
         samples_per_case: Number of samples to generate per case
         cat_categories: Categorical categories information
         scaler_params: Scaler parameters for denormalization
-        dict_cat_class_ids: Dictionary mapping class names to indices
+        inverted_cat_categories: List of {idx -> name} dicts for each cat feature (model feature order)
+        concept_name_id: Index of the activity column in the prefix tensor
     """
-    global global_model, global_samples_per_case, global_cat_categories, global_scaler_params, global_dict_cat_class_id
+    global global_model, global_samples_per_case, global_cat_categories, global_scaler_params
+    global global_inverted_cat_categories, global_concept_name_id
     
     # Models have already been moved to CPU before forking
     model.eval()
@@ -44,7 +49,8 @@ def init_worker(model,
     global_samples_per_case = samples_per_case
     global_cat_categories = cat_categories
     global_scaler_params = scaler_params
-    global_dict_cat_class_id = dict_cat_class_ids
+    global_inverted_cat_categories = inverted_cat_categories
+    global_concept_name_id = concept_name_id
 
 
 @torch.no_grad()
@@ -112,35 +118,39 @@ def _evaluate_case(case_name: str,
     cats_full, nums_full, _ = full_case
     # Denormalization values for numerical variables:
     mean_s, std_s = global_scaler_params
-    
-    act2idx, res2idx = global_dict_cat_class_id  # expect tuple of two dicts
-    # Invert them:
-    idx2act = {ix: name for name, ix in act2idx.items()}
-    idx2res = {ix: name for name, ix in res2idx.items()}
+
+    # {idx -> name} dict for activity (concept_name) column
+    idx2act = global_inverted_cat_categories[concept_name_id]
 
     results = []
     
     # iterate_case already defined elsewhere
     for prefix_length, (cats_pref, nums_pref) in iterate_case(full_case, concept_name_id, min_suffix_size):
 
-        # prefix_prep
-        acts = cats_pref[0][0].tolist()
-        ress = cats_pref[1][0].tolist()
-        times = nums_pref[0][0].tolist()
-        # Build the prefix
-        prefix_prep = [{"Activity": idx2act[a], "Resource": idx2res[r], "case_elapsed_time": t * std_s + mean_s} 
-                      for a, r, t in zip(acts, ress, times) if a != 0]
+        # Build the human-readable prefix: one dict per event (non-padding positions only)
+        seq_len = cats_pref[0].shape[1]
+        prefix_prep = []
+        for pos in range(seq_len):
+            act_idx = cats_pref[concept_name_id][0, pos].item()
+            if act_idx == 0:
+                continue
+            event = {}
+            for feat_i, inv_dict in enumerate(global_inverted_cat_categories):
+                feat_idx = cats_pref[feat_i][0, pos].item()
+                event[list(global_cat_feat_names)[feat_i]] = inv_dict.get(feat_idx)
+            event['case_elapsed_time'] = nums_pref[0][0, pos].item() * std_s + mean_s
+            prefix_prep.append(event)
 
         # true target: Get from the activity full tensor all indices of the last n values which are not zero
         non_zero_ids = (cats_full[0] != 0).nonzero(as_tuple=True)[0]
         
         # Get the activity ids without the EOS:
-        true_acts = cats_full[0][(non_zero_ids[0]+prefix_length):-1].tolist()
-        true_ress = cats_full[1][(non_zero_ids[0]+prefix_length):-1].tolist()
+        true_acts = cats_full[concept_name_id][(non_zero_ids[0]+prefix_length):-1].tolist()
+        true_cats_suffix = [cats_full[j][(non_zero_ids[0]+prefix_length):-1].tolist() for j in range(len(cats_full))]
         true_nums = nums_full[0][(non_zero_ids[0]+prefix_length):-1].tolist()
         
         # Build target as list of dicts:
-        target = [{"Activity": idx2act[a]} for a in true_acts if idx2act[a] != "EOS"]
+        target = [{"Activity": idx2act[a]} for a in true_acts if idx2act.get(a) != "EOS"]
         if target == []:
             continue
 
@@ -163,7 +173,7 @@ def _evaluate_case(case_name: str,
                 act = 'NaN'
             
             # Stop the suffix creation if EOS is predicted
-            elif idx2act[index_act] == 'EOS':
+            elif idx2act.get(index_act) == 'EOS':
                 break
             
             else:
@@ -172,10 +182,12 @@ def _evaluate_case(case_name: str,
             # Add to Most-likely:
             ml_list.append({"Activity": act})
                         
-            # Update Prefix Most Likely
-            cats_pref_clone[0] = torch.cat([cats_pref_clone[0][:, 1:], torch.tensor([[index_act]])], dim=1)
+            # Update prefix: activity from model prediction, other cats and nums from ground truth
+            cats_pref_clone[concept_name_id] = torch.cat([cats_pref_clone[concept_name_id][:, 1:], torch.tensor([[index_act]])], dim=1)
             if i < len(true_acts):
-                cats_pref_clone[1] = torch.cat([cats_pref_clone[1][:, 1:], torch.tensor([[true_ress[i]]])], dim=1)
+                for j in range(len(cats_pref_clone)):
+                    if j != concept_name_id:
+                        cats_pref_clone[j] = torch.cat([cats_pref_clone[j][:, 1:], torch.tensor([[true_cats_suffix[j][i]]])], dim=1)
                 nums_pref_clone[0] = torch.cat([nums_pref_clone[0][:, 1:], torch.tensor([[true_nums[i]]])], dim=1)
                 
         most_likely = ml_list
@@ -198,7 +210,7 @@ def _evaluate_case(case_name: str,
                    act = 'NaN'
                 
                 # Stop the suffix creation if EOS is predicted
-                elif idx2act[random_index_act] == 'EOS':
+                elif idx2act.get(random_index_act) == 'EOS':
                     break
                 
                 else:
@@ -206,10 +218,12 @@ def _evaluate_case(case_name: str,
                 
                 samples.append({"Activity": act})
                 
-                # Update Prefix Most Likely
-                cats_pref_clone_samples[0] = torch.cat([cats_pref_clone_samples[0][:, 1:], torch.tensor([[random_index_act]])], dim=1)
+                # Update prefix: activity from model prediction, other cats and nums from ground truth
+                cats_pref_clone_samples[concept_name_id] = torch.cat([cats_pref_clone_samples[concept_name_id][:, 1:], torch.tensor([[random_index_act]])], dim=1)
                 if i < len(true_acts):
-                    cats_pref_clone_samples[1] = torch.cat([cats_pref_clone_samples[1][:, 1:], torch.tensor([[true_ress[i]]])], dim=1)
+                    for j in range(len(cats_pref_clone_samples)):
+                        if j != concept_name_id:
+                            cats_pref_clone_samples[j] = torch.cat([cats_pref_clone_samples[j][:, 1:], torch.tensor([[true_cats_suffix[j][i]]])], dim=1)
                     nums_pref_clone_samples[0] = torch.cat([nums_pref_clone_samples[0][:, 1:], torch.tensor([[true_nums[i]]])], dim=1)
             
             samples_lists.append(samples)
@@ -246,48 +260,34 @@ def _evaluate_predefined_pair(case_name: str,
     
     # Denormalization values for numerical variables:
     mean_s, std_s = global_scaler_params
-    
-    act2idx, res2idx = global_dict_cat_class_id  # expect tuple of two dicts
-    # Invert them:
-    idx2act = {ix: name for name, ix in act2idx.items()}
-    idx2res = {ix: name for name, ix in res2idx.items()}
 
-    # prefix_prep
-    acts = cats_pref[0][0].tolist()
-    ress = cats_pref[1][0].tolist()
-    times = nums_pref[0][0].tolist()
-    # Build the prefix
-    prefix_prep = [{"Activity": idx2act[a], "Resource": idx2res[r], "case_elapsed_time": t * std_s + mean_s} 
-                  for a, r, t in zip(acts, ress, times) if a != 0]
+    # {idx -> name} dict for activity (concept_name) column
+    idx2act = global_inverted_cat_categories[concept_name_id]
 
-    # Extract true target from suffix
-    # The suffix tensors have shape (1, window_size), we need to extract non-zero values
-    cats_suffix_act = cats_suffix[0]  # Activity tensor from suffix, shape (1, window_size)
-    
-    # Get non-zero activity indices from suffix
-    # Flatten to 1D for easier processing
-    suffix_act_flat = cats_suffix_act[0]  # shape (window_size,)
+    # Build the human-readable prefix: one dict per event (non-padding positions only)
+    seq_len = cats_pref[0].shape[1]
+    prefix_prep = []
+    for pos in range(seq_len):
+        act_idx = cats_pref[concept_name_id][0, pos].item()
+        if act_idx == 0:
+            continue
+        event = {}
+        for feat_i, inv_dict in enumerate(global_inverted_cat_categories):
+            feat_idx = cats_pref[feat_i][0, pos].item()
+            event[list(global_cat_feat_names)[feat_i]] = inv_dict.get(feat_idx)
+        event['case_elapsed_time'] = nums_pref[0][0, pos].item() * std_s + mean_s
+        prefix_prep.append(event)
+
+    # Extract true target from suffix (activity column)
+    suffix_act_flat = cats_suffix[concept_name_id][0]  # shape (window_size,)
     non_zero_ids = (suffix_act_flat != 0).nonzero(as_tuple=True)[0]
     
     if len(non_zero_ids) == 0:
         return None  # Skip if no valid activities in suffix
     
-    # Extract true activities, resources, and times from suffix
-    # The suffix might contain the full window, so we take only the non-zero parts
     true_acts = suffix_act_flat[non_zero_ids].tolist()
-    
-    # Get resources and times from suffix if available
-    if len(cats_suffix) > 1:
-        suffix_res_flat = cats_suffix[1][0]  # shape (window_size,)
-        true_ress = suffix_res_flat[non_zero_ids].tolist()
-    else:
-        true_ress = []
-    
-    if len(nums_suffix) > 0:
-        suffix_num_flat = nums_suffix[0][0]  # shape (window_size,)
-        true_nums = suffix_num_flat[non_zero_ids].tolist()
-    else:
-        true_nums = []
+    true_cats_suffix = [cats_suffix[j][0][non_zero_ids].tolist() for j in range(len(cats_suffix))]
+    true_nums = nums_suffix[0][0][non_zero_ids].tolist() if len(nums_suffix) > 0 else []
     
     # Build target as list of dicts (exclude EOS)
     target = [{"Activity": idx2act[a]} for a in true_acts if idx2act.get(a, "") != "EOS"]
@@ -313,7 +313,7 @@ def _evaluate_predefined_pair(case_name: str,
             act = 'NaN'
         
         # Stop the suffix creation if EOS is predicted
-        elif idx2act[index_act] == 'EOS':
+        elif idx2act.get(index_act) == 'EOS':
             break
         
         else:
@@ -322,11 +322,14 @@ def _evaluate_predefined_pair(case_name: str,
         # Add to Most-likely:
         ml_list.append({"Activity": act})
                     
-        # Update Prefix Most Likely
-        cats_pref_clone[0] = torch.cat([cats_pref_clone[0][:, 1:], torch.tensor([[index_act]])], dim=1)
+        # Update prefix: activity from model prediction, other cats and nums from ground truth
+        cats_pref_clone[concept_name_id] = torch.cat([cats_pref_clone[concept_name_id][:, 1:], torch.tensor([[index_act]])], dim=1)
         if i < len(true_acts):
-            cats_pref_clone[1] = torch.cat([cats_pref_clone[1][:, 1:], torch.tensor([[true_ress[i]]])], dim=1)
-            nums_pref_clone[0] = torch.cat([nums_pref_clone[0][:, 1:], torch.tensor([[true_nums[i]]])], dim=1)
+            for j in range(len(cats_pref_clone)):
+                if j != concept_name_id:
+                    cats_pref_clone[j] = torch.cat([cats_pref_clone[j][:, 1:], torch.tensor([[true_cats_suffix[j][i]]])], dim=1)
+            if true_nums:
+                nums_pref_clone[0] = torch.cat([nums_pref_clone[0][:, 1:], torch.tensor([[true_nums[i]]])], dim=1)
             
     most_likely = ml_list
     
@@ -335,7 +338,6 @@ def _evaluate_predefined_pair(case_name: str,
     for _ in range(global_samples_per_case):
         cats_pref_clone_samples = [t.clone() for t in cats_pref]
         nums_pref_clone_samples = [t.clone() for t in nums_pref]
-        # Iterate through window size - pref len:
         samples = []
         for i in range(len(cats_pref[0][0])-prefix_len):
             # Predictions
@@ -348,7 +350,7 @@ def _evaluate_predefined_pair(case_name: str,
                act = 'NaN'
             
             # Stop the suffix creation if EOS is predicted
-            elif idx2act[random_index_act] == 'EOS':
+            elif idx2act.get(random_index_act) == 'EOS':
                 break
             
             else:
@@ -356,11 +358,14 @@ def _evaluate_predefined_pair(case_name: str,
             
             samples.append({"Activity": act})
             
-            # Update Prefix Most Likely
-            cats_pref_clone_samples[0] = torch.cat([cats_pref_clone_samples[0][:, 1:], torch.tensor([[random_index_act]])], dim=1)
+            # Update prefix: activity from model prediction, other cats and nums from ground truth
+            cats_pref_clone_samples[concept_name_id] = torch.cat([cats_pref_clone_samples[concept_name_id][:, 1:], torch.tensor([[random_index_act]])], dim=1)
             if i < len(true_acts):
-                cats_pref_clone_samples[1] = torch.cat([cats_pref_clone_samples[1][:, 1:], torch.tensor([[true_ress[i]]])], dim=1)
-                nums_pref_clone_samples[0] = torch.cat([nums_pref_clone_samples[0][:, 1:], torch.tensor([[true_nums[i]]])], dim=1)
+                for j in range(len(cats_pref_clone_samples)):
+                    if j != concept_name_id:
+                        cats_pref_clone_samples[j] = torch.cat([cats_pref_clone_samples[j][:, 1:], torch.tensor([[true_cats_suffix[j][i]]])], dim=1)
+                if true_nums:
+                    nums_pref_clone_samples[0] = torch.cat([nums_pref_clone_samples[0][:, 1:], torch.tensor([[true_nums[i]]])], dim=1)
         
         samples_lists.append(samples)
         
@@ -376,6 +381,7 @@ def evaluate_with_predefined_prefixes(model,
                                       device,
                                       samples_per_case: int = 20,
                                       random_order: Optional[bool] = False,
+                                      concept_name: str = 'concept:name',
                                       ):
     """
     Evaluate using predefined prefix-suffix pairs instead of generating them from cases.
@@ -389,24 +395,31 @@ def evaluate_with_predefined_prefixes(model,
         device: Device to run evaluation on
         samples_per_case: Number of samples to generate per case (default=20)
         random_order: Whether to randomize case order
+        concept_name: Name of the activity column in the dataset's categories (default='concept:name')
         
     Yields:
         Tuple of (case_name, prefix_length, prefix, sampled_suffixes, target, mean_prediction)
     """
     
+    global global_cat_feat_names
+
     # Move models to CPU
     model.to('cpu')
     
-    # Category names and ids
-    concept_name = 'Activity'
-    # Id of activity in cat list
-    concept_name_id = [i for i, cat in enumerate(dataset.all_categories[0]) if cat[0] == concept_name][0]
-    
-    # Dict with key: act class, value: index position
-    act_classes_id = dataset.all_categories[0][0][2]
-    # Dict with key: res class, value: index position
-    res_classes_id = dataset.all_categories[0][1][2]
-    
+    # Categorical feature names the model was trained on (in model tensor order)
+    cat_feat_names, _ = model.model_feat
+    global_cat_feat_names = cat_feat_names
+
+    # Id of activity column within the model's cat feature list
+    concept_name_id = cat_feat_names.index(concept_name)
+
+    # Build {idx -> name} lookup for every cat feature, in model feature order
+    dataset_cat_map = {cat[0]: cat[2] for cat in dataset.all_categories[0]}
+    inverted_cat_categories = [
+        {idx: name for name, idx in dataset_cat_map[feat].items()}
+        for feat in cat_feat_names
+    ]
+
     # Tuple of category (e.g., Activity) with amount classes, dict with class and index
     cat_categories, _ = model.data_set_categories
     
@@ -415,7 +428,7 @@ def evaluate_with_predefined_prefixes(model,
     scaler_params = (scaler.mean_.item(), scaler.scale_.item())
     
     # Initialize globals for identical logic
-    init_worker(model, samples_per_case, cat_categories, scaler_params, (act_classes_id, res_classes_id))
+    init_worker(model, samples_per_case, cat_categories, scaler_params, inverted_cat_categories, concept_name_id)
     
     # Get items from predefined pairs
     items = list(predefined_pairs.items())
@@ -440,6 +453,7 @@ def evaluate_seq_processing(model,
                             device,
                             samples_per_case: int = 20,
                             random_order: Optional[bool] = False,
+                            concept_name: str = 'concept:name',
                             ):
     """
     Sequential evaluation yielding tuples per case and prefix length.
@@ -450,29 +464,34 @@ def evaluate_seq_processing(model,
         device: Device to run evaluation on
         samples_per_case: Number of samples to generate per case (default=20)
         random_order: Whether to randomize case order
+        concept_name: Name of the activity column in the dataset's categories (default='concept:name')
         
     Yields:
         Tuple of (case_name, prefix_length, prefix, sampled_suffixes, target, mean_prediction)
     """
     
+    global global_cat_feat_names
+
     # Move models to CPU
     model.to('cpu')
     
-    # Category names and ids
-    concept_name = 'Activity'
-    # Id of activity in cat list
-    concept_name_id = [i for i, cat in enumerate(dataset.all_categories[0]) if cat[0] == concept_name][0]
-    
-    # Dict with key: act class, value: index position
-    act_classes_id = dataset.all_categories[0][0][2]
-    # Dict with key: res class, value: index position
-    res_classes_id = dataset.all_categories[0][1][2]
-    
+    # Categorical feature names the model was trained on (in model tensor order)
+    cat_feat_names, _ = model.model_feat
+    global_cat_feat_names = cat_feat_names
+
+    # Id of activity column within the model's cat feature list
+    concept_name_id = cat_feat_names.index(concept_name)
+
+    # Build {idx -> name} lookup for every cat feature, in model feature order
+    dataset_cat_map = {cat[0]: cat[2] for cat in dataset.all_categories[0]}
+    inverted_cat_categories = [
+        {idx: name for name, idx in dataset_cat_map[feat].items()}
+        for feat in cat_feat_names
+    ]
+
     # Id of EOS token in activity
-    eos_value = 'EOS'
-    # index of EOS value in activity dict:
-    eos_id = [v for k, v in dataset.all_categories[0][concept_name_id][2].items() if k == eos_value][0]
-    
+    eos_id = dataset_cat_map[concept_name]['EOS']
+
     cases = {}
     for event in dataset:
         # Get suffix being the last 
@@ -492,7 +511,7 @@ def evaluate_seq_processing(model,
     scaler_params = (scaler.mean_.item(), scaler.scale_.item())
     
     # Initialize globals for identical logic
-    init_worker(model, samples_per_case, cat_categories, scaler_params, (act_classes_id, res_classes_id))
+    init_worker(model, samples_per_case, cat_categories, scaler_params, inverted_cat_categories, concept_name_id)
     
     for _, (case_name, full_case) in tqdm(enumerate(case_items), total=len(cases)):
         
