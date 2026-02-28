@@ -4,7 +4,7 @@ SUMMARY COMPARISON: test - last_event_attack_all
 
 Metric                         U-ED-LSTM            Camargo-LSTM         Difference     
 --------------------------------------------------------------------------------
-Activity Match Rate            0.8526               0.7158               +0.1368        
+Attack Success Rate            0.1474               0.2842               -0.1368        
 Length Match Rate              0.8632               0.7158               +0.1474        
 Top k Activity Match Rate      0.9123               0.8351               +0.0772        
 

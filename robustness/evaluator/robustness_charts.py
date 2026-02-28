@@ -337,6 +337,135 @@ def plot_single_model_chart(
     return fig
 
 
+def plot_subplot_most_likely(
+    models: List[Dict[str, Any]],
+    title: str
+):
+    """
+    Plot a 3-panel subplot with activity match rate, DLS (clean vs perturbed),
+    and remaining time prediction shift side by side.
+
+    Args:
+        models: List of model dictionaries with 'data', 'name', 'color', 'marker'
+        title: Overall figure title (suptitle)
+
+    Returns:
+        matplotlib figure or None if no data
+    """
+    setup_plot_style()
+
+    common_prefix_lengths = _get_common_prefix_lengths(models)
+    if not common_prefix_lengths:
+        return None
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), dpi=100)
+
+    panel_specs = [
+        {
+            'key': 'attack_success_rates',
+            'ylabel': 'Attack Success Rate',
+            'subtitle': 'Attack Success Rate',
+            'ylim': (0, 1.05),
+            'mode': 'single',
+        },
+        {
+            'clean_key': 'clean_dls',
+            'pert_key': 'perturbed_dls',
+            'ylabel': 'DLS',
+            'subtitle': 'DLS',
+            'ylim': (0, 1.05),
+            'mode': 'clean_pert',
+        },
+        {
+            'key': 'remaining_time_prediction_shift',
+            'ylabel': 'Remaining Time Prediction Shift',
+            'subtitle': 'Remaining Time Shift',
+            'ylim': None,
+            'mode': 'single',
+        },
+    ]
+
+    for ax1, spec in zip(axes, panel_specs):
+        model_counts = []
+
+        if spec['mode'] == 'single':
+            model_values = []
+            for model in models:
+                data = model['data']
+                values_dict = dict(zip(data['prefix_lengths'], data[spec['key']]))
+                counts_dict = dict(zip(data['prefix_lengths'], data['sample_counts']))
+                model_values.append([values_dict.get(p, 0) for p in common_prefix_lengths])
+                model_counts.append([counts_dict.get(p, 0) for p in common_prefix_lengths])
+
+            for model, values in zip(models, model_values):
+                ax1.plot(common_prefix_lengths, values, marker=model['marker'],
+                         linewidth=1.2, markersize=5, label=model['name'],
+                         color=model['color'], alpha=0.8)
+
+        else:  # clean_pert
+            for model in models:
+                data = model['data']
+                clean_dict = dict(zip(data['prefix_lengths'], data[spec['clean_key']]))
+                pert_dict = dict(zip(data['prefix_lengths'], data[spec['pert_key']]))
+                counts_dict = dict(zip(data['prefix_lengths'], data['sample_counts']))
+
+                clean_values = [clean_dict.get(p, 0) for p in common_prefix_lengths]
+                pert_values = [pert_dict.get(p, 0) for p in common_prefix_lengths]
+                model_counts.append([counts_dict.get(p, 0) for p in common_prefix_lengths])
+
+                ax1.plot(common_prefix_lengths, clean_values, marker=model['marker'],
+                         linewidth=1.2, markersize=5, label=f"{model['name']} (clean)",
+                         color=model['color'], alpha=0.9)
+                ax1.plot(common_prefix_lengths, pert_values, marker=model['marker'],
+                         linestyle='--', linewidth=1.2, markersize=5,
+                         label=f"{model['name']} (perturbed)",
+                         color=model['color'], alpha=0.6)
+
+        # Secondary axis: instance count as dashed line + fill
+        ax2 = ax1.twinx()
+        total_counts = [sum(counts[i] for counts in model_counts)
+                        for i in range(len(common_prefix_lengths))]
+        ax2.plot(common_prefix_lengths, total_counts,
+                 linestyle='--', color='gray', label='# instances')
+        ax2.fill_between(common_prefix_lengths, total_counts, color='gray', alpha=0.3)
+
+        ax1.set_xlabel('prefix len', labelpad=0.5)
+        ax1.set_ylabel(spec['ylabel'], labelpad=0.5)
+        ax2.set_ylabel('instances', labelpad=0.5)
+
+        if spec['ylim']:
+            ax1.set_ylim(spec['ylim'])
+        ax1.set_xlim(left=min(common_prefix_lengths) - 0.5,
+                     right=max(common_prefix_lengths) + 0.5)
+        ax2.set_ylim(bottom=0)
+
+        for spine in ax1.spines.values():
+            spine.set_visible(False)
+        for spine in ax2.spines.values():
+            spine.set_visible(False)
+
+        ax1.grid(True, alpha=0.3, axis='y', linestyle='--', linewidth=0.5)
+        if spec['ylim'] and spec['ylim'][1] >= 1.0:
+            ax1.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, linewidth=0.7)
+
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right',
+                   frameon=True, fontsize=7)
+
+        ax2.set_yticks([])
+        ax1.set_zorder(2)
+        ax2.set_zorder(1)
+        ax1.patch.set_visible(False)
+
+        ax1.set_title(spec['subtitle'], fontsize=10)
+
+    fig.suptitle(title, fontsize=11, y=1.01)
+    plt.tight_layout()
+
+    return fig
+
+
 def generate_all_charts_for_comparison(
     dataset: str,
     attack: str,
@@ -364,20 +493,20 @@ def generate_all_charts_for_comparison(
     # Determine number of models
     num_models = len(models)
     
-    # 1. Activity Match Rate
+    # 1. Attack Success Rate
     try:
         fig = plot_comparison_chart(
-            models, 'activity_match_rates',
-            'Activity Sequence Match Rate', 
-            f'{dataset} - {attack}: Activity Match Rate'
+            models, 'attack_success_rates',
+            'Attack Success Rate',
+            f'{dataset} - {attack}: Attack Success Rate'
         )
         if fig:
-            save_path = f"{output_subdir}/activity_match_rate.png"
+            save_path = f"{output_subdir}/attack_success_rate.png"
             fig.savefig(save_path, dpi=100, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
-        print(f"    Error generating activity_match_rate: {e}")
+        print(f"    Error generating attack_success_rate: {e}")
     
     # 2. Length Match Rate
     try:
@@ -440,7 +569,21 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating dls_drop: {e}")
     
-    # 6. Modal Clean DLS with IQR
+    # 6. Subplot Most Likely (Attack Success Rate | DLS | Remaining Time Shift)
+    try:
+        fig = plot_subplot_most_likely(
+            models,
+            f'{dataset} - {attack}'
+        )
+        if fig:
+            save_path = f"{output_subdir}/subplot_most_likely.png"
+            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            plt.close(fig)
+            charts_generated.append(save_path)
+    except Exception as e:
+        print(f"    Error generating subplot_most_likely: {e}")
+
+    # 7. Modal Clean DLS with IQR
     try:
         fig = plot_comparison_chart(
             models, 'modal_clean_dls',
@@ -458,7 +601,7 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating modal_clean_dls: {e}")
     
-    # 7. Modal Perturbed DLS with IQR
+    # 8. Modal Perturbed DLS with IQR
     try:
         fig = plot_comparison_chart(
             models, 'modal_perturbed_dls',
@@ -610,10 +753,10 @@ def generate_summary_table(
     # Calculate aggregate metrics
     metrics_data = []
     for i, mean_metrics in enumerate(all_mean_metrics):
-        activity_match = np.mean([m['activity_sequence_match'] for m in mean_metrics])
+        attack_success = np.mean([m['attack_success'] for m in mean_metrics])
         length_match = np.mean([m['length_match'] for m in mean_metrics])
         metrics_data.append({
-            'activity_match': activity_match,
+            'attack_success': attack_success,
             'length_match': length_match
         })
     
@@ -624,12 +767,12 @@ def generate_summary_table(
             topk = np.mean([m.get('top_k_activity_match_rate', 0.0) for m in prob_metrics])
             metrics_data[i]['topk'] = topk
     
-    # Activity Match Rate
-    metric_row = f"{'Activity Match Rate':<30}"
+    # Attack Success Rate
+    metric_row = f"{'Attack Success Rate':<30}"
     for i, model_data in enumerate(metrics_data):
-        metric_row += f" {model_data['activity_match']:<20.4f}"
+        metric_row += f" {model_data['attack_success']:<20.4f}"
     if len(models) > 1:
-        diff = metrics_data[0]['activity_match'] - metrics_data[-1]['activity_match']
+        diff = metrics_data[0]['attack_success'] - metrics_data[-1]['attack_success']
         diff_str = f"{diff:+.4f}" if abs(diff) > 0.0001 else "≈ 0.0000"
         metric_row += f" {diff_str:<15}"
     summary_lines.append(metric_row)

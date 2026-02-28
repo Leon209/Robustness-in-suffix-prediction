@@ -401,7 +401,7 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
                             relative_dls_drop_by_prefix[prefix_len].append(relative_drop)
     
     prefix_lengths = []
-    activity_match_rates = []
+    attack_success_rates = []
     length_match_rates = []
     top_k_activity_match_rates = []
     clean_dls = []
@@ -432,7 +432,7 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
         prob_metrics = [m for m in prob_metrics if m]
         
         prefix_lengths.append(prefix_len)
-        activity_match_rates.append(np.mean([m['activity_sequence_match'] for m in mean_metrics]))
+        attack_success_rates.append(np.mean([m['attack_success'] for m in mean_metrics]))
         length_match_rates.append(np.mean([m['length_match'] for m in mean_metrics]))
         
         # Aggregate DLS metrics
@@ -525,7 +525,7 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
     
     return {
         'prefix_lengths': prefix_lengths,
-        'activity_match_rates': activity_match_rates,
+        'attack_success_rates': attack_success_rates,
         'length_match_rates': length_match_rates,
         'top_k_activity_match_rates': top_k_activity_match_rates,
         'clean_dls': clean_dls,
@@ -588,9 +588,11 @@ def _compare_mean_predictions(
     concept_name: str = 'Activity'
 ) -> Dict:
     """Compare mean predictions (single deterministic prediction)."""
+    activity_sequence_match = _compare_activity_sequences(pred_orig, pred_pert, concept_name)
     return {
         'length_match': len(pred_orig) == len(pred_pert),
-        'activity_sequence_match': _compare_activity_sequences(pred_orig, pred_pert, concept_name),
+        'activity_sequence_match': activity_sequence_match,
+        'attack_success': not activity_sequence_match,
         'length_original': len(pred_orig),
         'length_perturbed': len(pred_pert)
     }
@@ -1139,7 +1141,7 @@ def _calculate_chrf(
 def _aggregate_mean_metrics(metrics_list: List[Dict]) -> Dict:
     """Aggregate mean prediction metrics."""
     return {
-        'activity_match_rate': np.mean([m['activity_sequence_match'] for m in metrics_list]),
+        'attack_success_rate': np.mean([m['attack_success'] for m in metrics_list]),
         'length_match_rate': np.mean([m['length_match'] for m in metrics_list])
     }
 
