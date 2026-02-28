@@ -16,6 +16,8 @@ def setup_plot_style():
     """Setup consistent plot styling."""
     mpl.rcdefaults()
     plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'Times', 'DejaVu Serif'],
         'font.size': 8,
         'axes.titlesize': 10,
         'axes.labelsize': 9,
@@ -460,8 +462,9 @@ def plot_subplot_most_likely(
 
         ax1.set_title(spec['subtitle'], fontsize=10)
 
-    fig.suptitle(title, fontsize=11, y=1.01)
     plt.tight_layout()
+    fig.text(0.01, 1.01, title, fontsize=15, fontweight='bold',
+             ha='left', va='bottom', transform=fig.transFigure)
 
     return fig
 
@@ -470,16 +473,19 @@ def generate_all_charts_for_comparison(
     dataset: str,
     attack: str,
     models: List[Dict[str, Any]],
-    output_base_dir: str
+    output_base_dir: str,
+    display_dataset: Optional[str] = None
 ) -> List[str]:
     """
     Generate all charts for a dataset-attack combination.
     
     Args:
-        dataset: Dataset name
+        dataset: Dataset folder name (used for output path)
         attack: Attack name
         models: List of model dictionaries with 'data', 'name', 'color', 'marker', 'results'
         output_base_dir: Base output directory
+        display_dataset: Optional display name for the dataset shown in chart titles.
+                         If None, falls back to dataset.
     
     Returns:
         List of generated chart file paths
@@ -573,7 +579,7 @@ def generate_all_charts_for_comparison(
     try:
         fig = plot_subplot_most_likely(
             models,
-            f'{dataset} - {attack}'
+            display_dataset if display_dataset is not None else dataset
         )
         if fig:
             save_path = f"{output_subdir}/subplot_most_likely.png"
