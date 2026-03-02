@@ -1,0 +1,53 @@
+============================================================
+Summary Statistics: BPIC17 — last_event_attack_all
+============================================================
+
+Attack Success Rate
+  Camargo-LSTM: 0.0122
+
+Length Match Rate
+  Camargo-LSTM: 0.9903
+
+Clean DLS
+  Camargo-LSTM: 0.4293
+
+Perturbed DLS
+  Camargo-LSTM: 0.4279
+
+chrF Score (clean)
+  Camargo-LSTM: 0.5663
+
+chrF Score (perturbed)
+  Camargo-LSTM: 0.5660
+
+ROUGE-L (clean)
+  Camargo-LSTM: 0.4629
+
+ROUGE-L (perturbed)
+  Camargo-LSTM: 0.4636
+
+NLL (clean)
+  Camargo-LSTM: 22.9954
+
+NLL (perturbed)
+  Camargo-LSTM: 22.9756
+
+Wasserstein Distance
+  Camargo-LSTM: 0.0478
+
+Remaining Time MAE clean (d)
+  Camargo-LSTM: 0.0000
+
+Remaining Time MAE pert (d)
+  Camargo-LSTM: 0.0000
+
+Support Correct (clean)
+  Camargo-LSTM: 0.0000
+
+Support Correct (perturbed)
+  Camargo-LSTM: 0.0000
+
+============================================================
+Total Evaluations
+============================================================
+  Camargo-LSTM: 8580

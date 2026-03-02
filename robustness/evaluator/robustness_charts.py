@@ -75,7 +75,7 @@ def plot_comparison_chart(
     """
     setup_plot_style()
     
-    fig, ax1 = plt.subplots(figsize=(6, 4), dpi=100)
+    fig, ax1 = plt.subplots(figsize=(6, 4), dpi=300)
     
     # Get common prefix lengths
     common_prefix_lengths = _get_common_prefix_lengths(models)
@@ -190,7 +190,7 @@ def plot_clean_pert_comparison(
     """
     setup_plot_style()
     
-    fig, ax1 = plt.subplots(figsize=(6, 4), dpi=100)
+    fig, ax1 = plt.subplots(figsize=(6, 4), dpi=300)
     
     common_prefix_lengths = _get_common_prefix_lengths(models)
     
@@ -290,7 +290,7 @@ def plot_single_model_chart(
     """
     setup_plot_style()
     
-    fig, ax1 = plt.subplots(figsize=(6, 4), dpi=100)
+    fig, ax1 = plt.subplots(figsize=(6, 4), dpi=300)
     
     data = model['data']
     prefix_lengths = sorted(data['prefix_lengths'])
@@ -364,7 +364,7 @@ def plot_subplot_most_likely(
     if not common_prefix_lengths:
         return None
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4), dpi=100)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), dpi=300)
 
     panel_specs = [
         {
@@ -497,7 +497,7 @@ def plot_subplot_probabilistic_prediction(
     if not common_prefix_lengths:
         return None
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4), dpi=100)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), dpi=300)
 
     panel_specs = [
         {
@@ -599,12 +599,33 @@ def plot_subplot_probabilistic_prediction(
     return fig
 
 
+def _filter_models_by_max_prefix(
+    models: List[Dict[str, Any]],
+    max_prefix_length: Optional[int]
+) -> List[Dict[str, Any]]:
+    """Return a copy of models with all aggregate data truncated to max_prefix_length."""
+    if max_prefix_length is None:
+        return models
+    filtered = []
+    for model in models:
+        data = model['data']
+        prefix_lengths = data['prefix_lengths']
+        keep = [i for i, p in enumerate(prefix_lengths) if p <= max_prefix_length]
+        new_data = {
+            key: [vals[i] for i in keep] if isinstance(vals, list) else vals
+            for key, vals in data.items()
+        }
+        filtered.append({**model, 'data': new_data})
+    return filtered
+
+
 def generate_all_charts_for_comparison(
     dataset: str,
     attack: str,
     models: List[Dict[str, Any]],
     output_base_dir: str,
-    display_dataset: Optional[str] = None
+    display_dataset: Optional[str] = None,
+    max_prefix_length: Optional[int] = None
 ) -> List[str]:
     """
     Generate all charts for a dataset-attack combination.
@@ -616,6 +637,7 @@ def generate_all_charts_for_comparison(
         output_base_dir: Base output directory
         display_dataset: Optional display name for the dataset shown in chart titles.
                          If None, falls back to dataset.
+        max_prefix_length: If set, only prefix lengths <= this value are included in charts.
     
     Returns:
         List of generated chart file paths
@@ -623,7 +645,10 @@ def generate_all_charts_for_comparison(
     # Create output directory for this combination
     output_subdir = f"{output_base_dir}/{dataset}/{attack}"
     Path(output_subdir).mkdir(parents=True, exist_ok=True)
-    
+
+    # Apply prefix length cap if configured
+    models = _filter_models_by_max_prefix(models, max_prefix_length)
+
     charts_generated = []
     
     # Determine number of models
@@ -638,7 +663,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/attack_success_rate.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -653,7 +678,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/length_match_rate.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -669,7 +694,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/remaining_time_mae.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -684,7 +709,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/clean_dls.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -699,7 +724,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/dls_drop.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -713,7 +738,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/subplot_most_likely.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -731,7 +756,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/modal_clean_dls.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -749,7 +774,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/modal_perturbed_dls.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -764,7 +789,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/support_clean_pert.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -779,7 +804,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/rouge_l.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -794,7 +819,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/chrf.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -809,7 +834,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/nll.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -825,7 +850,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/wasserstein_distance.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
@@ -839,7 +864,7 @@ def generate_all_charts_for_comparison(
         )
         if fig:
             save_path = f"{output_subdir}/subplot_probabilistic_prediction.png"
-            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
