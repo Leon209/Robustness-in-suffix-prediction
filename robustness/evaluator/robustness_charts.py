@@ -171,7 +171,8 @@ def plot_clean_pert_comparison(
     clean_key: str,
     pert_key: str,
     ylabel: str,
-    title: str
+    title: str,
+    ylim: Optional[Tuple[float, float]] = (0, 1.05)
 ):
     """
     Plot comparison with clean and perturbed lines for 1-3 models.
@@ -182,6 +183,7 @@ def plot_clean_pert_comparison(
         pert_key: Key for perturbed data (e.g., 'support_perturbed')
         ylabel: Y-axis label
         title: Chart title
+        ylim: Y-axis limits tuple, or None for auto-scale
     
     Returns:
         matplotlib figure or None if no data
@@ -237,7 +239,8 @@ def plot_clean_pert_comparison(
     ax1.set_xlabel('prefix len', labelpad=0.5)
     ax1.set_ylabel(ylabel, labelpad=0.5)
     ax2.set_ylabel('instances', labelpad=0.5)
-    ax1.set_ylim(0, 1.05)
+    if ylim:
+        ax1.set_ylim(ylim)
     ax1.set_xlim(left=min(common_prefix_lengths) - 0.5, 
                  right=max(common_prefix_lengths) + 0.5)
     ax2.set_ylim(bottom=0)
@@ -248,7 +251,8 @@ def plot_clean_pert_comparison(
         spine.set_visible(False)
     
     ax1.grid(True, alpha=0.3, axis='y', linestyle='--', linewidth=0.5)
-    ax1.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, linewidth=0.7)
+    if ylim and ylim[1] >= 1.0:
+        ax1.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, linewidth=0.7)
     
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -344,8 +348,8 @@ def plot_subplot_most_likely(
     title: str
 ):
     """
-    Plot a 3-panel subplot with activity match rate, DLS (clean vs perturbed),
-    and remaining time prediction shift side by side.
+    Plot a 3-panel subplot with attack success rate, DLS (clean vs perturbed),
+    and remaining time MAE in days (clean vs perturbed) side by side.
 
     Args:
         models: List of model dictionaries with 'data', 'name', 'color', 'marker'
@@ -379,9 +383,135 @@ def plot_subplot_most_likely(
             'mode': 'clean_pert',
         },
         {
-            'key': 'remaining_time_prediction_shift',
-            'ylabel': 'Remaining Time Prediction Shift',
-            'subtitle': 'Remaining Time Shift',
+            'clean_key': 'remaining_time_mae_clean',
+            'pert_key': 'remaining_time_mae_perturbed',
+            'ylabel': 'Remaining Time MAE (days)',
+            'subtitle': 'Remaining Time MAE (days)',
+            'ylim': None,
+            'mode': 'clean_pert',
+        },
+    ]
+
+    for ax1, spec in zip(axes, panel_specs):
+        panel_models = spec.get('models_override', models)
+        panel_prefix_lengths = _get_common_prefix_lengths(panel_models) or common_prefix_lengths
+        model_counts = []
+
+        if spec['mode'] == 'single':
+            model_values = []
+            for model in panel_models:
+                data = model['data']
+                values_dict = dict(zip(data['prefix_lengths'], data[spec['key']]))
+                counts_dict = dict(zip(data['prefix_lengths'], data['sample_counts']))
+                model_values.append([values_dict.get(p, 0) for p in panel_prefix_lengths])
+                model_counts.append([counts_dict.get(p, 0) for p in panel_prefix_lengths])
+
+            for model, values in zip(panel_models, model_values):
+                ax1.plot(panel_prefix_lengths, values, marker=model['marker'],
+                         linewidth=1.2, markersize=5, label=model['name'],
+                         color=model['color'], alpha=0.8)
+
+        else:  # clean_pert
+            for model in panel_models:
+                data = model['data']
+                clean_dict = dict(zip(data['prefix_lengths'], data[spec['clean_key']]))
+                pert_dict = dict(zip(data['prefix_lengths'], data[spec['pert_key']]))
+                counts_dict = dict(zip(data['prefix_lengths'], data['sample_counts']))
+
+                clean_values = [clean_dict.get(p, 0) for p in panel_prefix_lengths]
+                pert_values = [pert_dict.get(p, 0) for p in panel_prefix_lengths]
+                model_counts.append([counts_dict.get(p, 0) for p in panel_prefix_lengths])
+
+                ax1.plot(panel_prefix_lengths, clean_values, marker=model['marker'],
+                         linewidth=1.2, markersize=5, label=f"{model['name']} (clean)",
+                         color=model['color'], alpha=0.9)
+                ax1.plot(panel_prefix_lengths, pert_values, marker=model['marker'],
+                         linestyle='--', linewidth=1.2, markersize=5,
+                         label=f"{model['name']} (perturbed)",
+                         color=model['color'], alpha=0.6)
+
+        # Secondary axis: instance count as dashed line + fill
+        ax2 = ax1.twinx()
+        total_counts = [sum(counts[i] for counts in model_counts)
+                        for i in range(len(panel_prefix_lengths))]
+        ax2.plot(panel_prefix_lengths, total_counts,
+                 linestyle='--', color='gray', label='# instances')
+        ax2.fill_between(panel_prefix_lengths, total_counts, color='gray', alpha=0.3)
+
+        ax1.set_xlabel('prefix len', labelpad=0.5)
+        ax1.set_ylabel(spec['ylabel'], labelpad=0.5)
+        ax2.set_ylabel('instances', labelpad=0.5)
+
+        if spec['ylim']:
+            ax1.set_ylim(spec['ylim'])
+        ax1.set_xlim(left=min(panel_prefix_lengths) - 0.5,
+                     right=max(panel_prefix_lengths) + 0.5)
+        ax2.set_ylim(bottom=0)
+
+        for spine in ax1.spines.values():
+            spine.set_visible(False)
+        for spine in ax2.spines.values():
+            spine.set_visible(False)
+
+        ax1.grid(True, alpha=0.3, axis='y', linestyle='--', linewidth=0.5)
+        if spec['ylim'] and spec['ylim'][1] >= 1.0:
+            ax1.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, linewidth=0.7)
+
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right',
+                   frameon=True, fontsize=7)
+
+        ax2.set_yticks([])
+        ax1.set_zorder(2)
+        ax2.set_zorder(1)
+        ax1.patch.set_visible(False)
+
+        ax1.set_title(spec['subtitle'], fontsize=10)
+
+    plt.tight_layout()
+    fig.text(0.01, 1.01, title, fontsize=15, fontweight='bold',
+             ha='left', va='bottom', transform=fig.transFigure)
+
+    return fig
+
+
+def plot_subplot_probabilistic_prediction(
+    models: List[Dict[str, Any]],
+    title: str
+):
+    """
+    Plot a 2-panel subplot with Support of Correct Prediction (clean vs perturbed)
+    and Wasserstein Distance side by side.
+
+    Args:
+        models: List of model dictionaries with 'data', 'name', 'color', 'marker'
+        title: Overall figure title shown bold and left-aligned above the panels
+
+    Returns:
+        matplotlib figure or None if no data
+    """
+    setup_plot_style()
+
+    common_prefix_lengths = _get_common_prefix_lengths(models)
+    if not common_prefix_lengths:
+        return None
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), dpi=100)
+
+    panel_specs = [
+        {
+            'clean_key': 'support_clean',
+            'pert_key': 'support_perturbed',
+            'ylabel': 'Support of Correct Prediction',
+            'subtitle': 'Support of Correct Prediction',
+            'ylim': (0, 1.05),
+            'mode': 'clean_pert',
+        },
+        {
+            'key': 'wasserstein_distance',
+            'ylabel': 'Wasserstein Distance',
+            'subtitle': 'Wasserstein Distance',
             'ylim': None,
             'mode': 'single',
         },
@@ -529,21 +659,21 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating length_match_rate: {e}")
     
-    # 3. Remaining Time Prediction Shift
+    # 3. Remaining Time MAE (days) - Clean vs Perturbed
     try:
-        fig = plot_comparison_chart(
-            models, 'remaining_time_prediction_shift',
-            'Remaining Time Prediction Shift',
-            f'{dataset} - {attack}: Remaining Time Shift',
+        fig = plot_clean_pert_comparison(
+            models, 'remaining_time_mae_clean', 'remaining_time_mae_perturbed',
+            'Remaining Time MAE (days)',
+            f'{dataset} - {attack}: Remaining Time MAE',
             ylim=None
         )
         if fig:
-            save_path = f"{output_subdir}/remaining_time_shift.png"
+            save_path = f"{output_subdir}/remaining_time_mae.png"
             fig.savefig(save_path, dpi=100, bbox_inches='tight')
             plt.close(fig)
             charts_generated.append(save_path)
     except Exception as e:
-        print(f"    Error generating remaining_time_shift: {e}")
+        print(f"    Error generating remaining_time_mae: {e}")
     
     # 4. Clean DLS
     try:
@@ -575,7 +705,7 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating dls_drop: {e}")
     
-    # 6. Subplot Most Likely (Attack Success Rate | DLS | Remaining Time Shift)
+    # 6. Subplot Most Likely (Attack Success Rate | DLS | Remaining Time MAE)
     try:
         fig = plot_subplot_most_likely(
             models,
@@ -685,22 +815,36 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating nll: {e}")
     
-    # 12-13. Wasserstein Distance (one chart per model)
-    for model in models:
-        try:
-            fig = plot_single_model_chart(
-                model, 'wasserstein_distance',
-                'Wasserstein Distance',
-                f'{dataset} - {attack}: Wasserstein Distance ({model["name"]})'
-            )
-            if fig:
-                save_path = f"{output_subdir}/wasserstein_{model['model_id']}.png"
-                fig.savefig(save_path, dpi=100, bbox_inches='tight')
-                plt.close(fig)
-                charts_generated.append(save_path)
-        except Exception as e:
-            print(f"    Error generating wasserstein_{model['model_id']}: {e}")
-    
+    # 12. Wasserstein Distance (all models in one chart)
+    try:
+        fig = plot_comparison_chart(
+            models, 'wasserstein_distance',
+            'Wasserstein Distance',
+            f'{dataset} - {attack}: Wasserstein Distance',
+            ylim=None
+        )
+        if fig:
+            save_path = f"{output_subdir}/wasserstein_distance.png"
+            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            plt.close(fig)
+            charts_generated.append(save_path)
+    except Exception as e:
+        print(f"    Error generating wasserstein_distance: {e}")
+
+    # 13. Subplot Probabilistic Prediction (Support of Correct Prediction | Wasserstein Distance)
+    try:
+        fig = plot_subplot_probabilistic_prediction(
+            models,
+            display_dataset if display_dataset is not None else dataset
+        )
+        if fig:
+            save_path = f"{output_subdir}/subplot_probabilistic_prediction.png"
+            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            plt.close(fig)
+            charts_generated.append(save_path)
+    except Exception as e:
+        print(f"    Error generating subplot_probabilistic_prediction: {e}")
+
     return charts_generated
 
 
@@ -708,110 +852,70 @@ def generate_summary_table(
     dataset: str,
     attack: str,
     models: List[Dict[str, Any]],
-    output_base_dir: str
+    output_base_dir: str,
+    display_dataset: Optional[str] = None
 ) -> str:
     """
-    Generate and save summary comparison table.
-    
+    Generate and save summary statistics text file with average values per metric per model.
+
     Args:
-        dataset: Dataset name
+        dataset: Dataset folder name (used for output path)
         attack: Attack name
-        models: List of model dictionaries with 'results' and 'name'
+        models: List of model dictionaries with 'data', 'results', and 'name'
         output_base_dir: Base output directory
-    
+        display_dataset: Optional display name for the dataset shown in the header
+
     Returns:
         Summary text string
     """
     output_subdir = f"{output_base_dir}/{dataset}/{attack}"
     Path(output_subdir).mkdir(parents=True, exist_ok=True)
-    
-    summary_lines = []
-    summary_lines.append("="*80)
-    summary_lines.append(f"SUMMARY COMPARISON: {dataset} - {attack}")
-    summary_lines.append("="*80)
-    
-    # Create header with model names
-    header = f"{'Metric':<30}"
+
+    title = display_dataset if display_dataset is not None else dataset
+    lines = []
+    lines.append("=" * 60)
+    lines.append(f"Summary Statistics: {title} — {attack}")
+    lines.append("=" * 60)
+
+    # Metrics derived from the per-prefix aggregate data (mean over all prefix lengths)
+    aggregate_metrics = [
+        ("Attack Success Rate",          "attack_success_rates"),
+        ("Length Match Rate",            "length_match_rates"),
+        ("Clean DLS",                    "clean_dls"),
+        ("Perturbed DLS",                "perturbed_dls"),
+        ("chrF Score (clean)",           "chrf_clean"),
+        ("chrF Score (perturbed)",       "chrf_perturbed"),
+        ("ROUGE-L (clean)",              "rouge_l_clean"),
+        ("ROUGE-L (perturbed)",          "rouge_l_perturbed"),
+        ("NLL (clean)",                  "nll_clean"),
+        ("NLL (perturbed)",              "nll_perturbed"),
+        ("Wasserstein Distance",         "wasserstein_distance"),
+        ("Remaining Time MAE clean (d)", "remaining_time_mae_clean"),
+        ("Remaining Time MAE pert (d)",  "remaining_time_mae_perturbed"),
+        ("Support Correct (clean)",      "support_clean"),
+        ("Support Correct (perturbed)",  "support_perturbed"),
+    ]
+
+    for label, key in aggregate_metrics:
+        lines.append(f"\n{label}")
+        for model in models:
+            data = model['data']
+            values = data.get(key, [])
+            if values:
+                avg = float(np.mean([v for v in values if v is not None]))
+                lines.append(f"  {model['name']}: {avg:.4f}")
+            else:
+                lines.append(f"  {model['name']}: n/a")
+
+    lines.append("\n" + "=" * 60)
+    lines.append("Total Evaluations")
+    lines.append("=" * 60)
     for model in models:
-        header += f" {model['name']:<20}"
-    if len(models) > 1:
-        header += f" {'Difference':<15}"
-    summary_lines.append(f"\n{header}")
-    summary_lines.append("-"*80)
-    
-    # Calculate metrics for each model
-    all_mean_metrics = []
-    all_prob_metrics = []
-    
-    for model in models:
-        results = model['results']
-        mean_metrics = [entry['robustness_metrics']['mean_prediction'] 
-                       for entry in results.values() 
-                       if 'robustness_metrics' in entry]
-        prob_metrics = [entry['robustness_metrics'].get('probabilistic_prediction', {}) 
-                       for entry in results.values() 
-                       if 'robustness_metrics' in entry]
-        prob_metrics = [m for m in prob_metrics if m]
-        
-        all_mean_metrics.append(mean_metrics)
-        all_prob_metrics.append(prob_metrics)
-    
-    # Calculate aggregate metrics
-    metrics_data = []
-    for i, mean_metrics in enumerate(all_mean_metrics):
-        attack_success = np.mean([m['attack_success'] for m in mean_metrics])
-        length_match = np.mean([m['length_match'] for m in mean_metrics])
-        metrics_data.append({
-            'attack_success': attack_success,
-            'length_match': length_match
-        })
-    
-    # Add top-k if available
-    topk_available = all([len(pm) > 0 for pm in all_prob_metrics])
-    if topk_available:
-        for i, prob_metrics in enumerate(all_prob_metrics):
-            topk = np.mean([m.get('top_k_activity_match_rate', 0.0) for m in prob_metrics])
-            metrics_data[i]['topk'] = topk
-    
-    # Attack Success Rate
-    metric_row = f"{'Attack Success Rate':<30}"
-    for i, model_data in enumerate(metrics_data):
-        metric_row += f" {model_data['attack_success']:<20.4f}"
-    if len(models) > 1:
-        diff = metrics_data[0]['attack_success'] - metrics_data[-1]['attack_success']
-        diff_str = f"{diff:+.4f}" if abs(diff) > 0.0001 else "≈ 0.0000"
-        metric_row += f" {diff_str:<15}"
-    summary_lines.append(metric_row)
-    
-    # Length Match Rate
-    metric_row = f"{'Length Match Rate':<30}"
-    for i, model_data in enumerate(metrics_data):
-        metric_row += f" {model_data['length_match']:<20.4f}"
-    if len(models) > 1:
-        diff = metrics_data[0]['length_match'] - metrics_data[-1]['length_match']
-        diff_str = f"{diff:+.4f}" if abs(diff) > 0.0001 else "≈ 0.0000"
-        metric_row += f" {diff_str:<15}"
-    summary_lines.append(metric_row)
-    
-    # Top k Activity Match Rate
-    if topk_available:
-        metric_row = f"{'Top k Activity Match Rate':<30}"
-        for i, model_data in enumerate(metrics_data):
-            metric_row += f" {model_data['topk']:<20.4f}"
-        if len(models) > 1:
-            diff = metrics_data[0]['topk'] - metrics_data[-1]['topk']
-            diff_str = f"{diff:+.4f}" if abs(diff) > 0.0001 else "≈ 0.0000"
-            metric_row += f" {diff_str:<15}"
-        summary_lines.append(metric_row)
-    
-    summary_lines.append(f"\nTotal Evaluations:")
-    for model in models:
-        summary_lines.append(f"  {model['name']}: {len(model['results'])}")
-    
-    summary_text = "\n".join(summary_lines)
-    
-    # Save to file
-    with open(f"{output_subdir}/summary.txt", 'w') as f:
+        lines.append(f"  {model['name']}: {len(model['results'])}")
+
+    summary_text = "\n".join(lines)
+
+    with open(f"{output_subdir}/summary_statistics.txt", 'w') as f:
         f.write(summary_text)
-    
+
     return summary_text

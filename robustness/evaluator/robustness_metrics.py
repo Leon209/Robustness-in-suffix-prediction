@@ -171,6 +171,8 @@ def prepare_robustness_results(
         if mean_remaining_time_orig is not None and mean_remaining_time_pert is not None:
             # New format: use pre-calculated remaining times
             remaining_time_shift = abs(mean_remaining_time_orig - mean_remaining_time_pert)
+            entry['remaining_time_clean'] = float(mean_remaining_time_orig)
+            entry['remaining_time_perturbed'] = float(mean_remaining_time_pert)
         else:
             # Old format: calculate remaining time from predictions
             # Check if we have the necessary data for remaining time calculation
@@ -206,6 +208,8 @@ def prepare_robustness_results(
                 # Calculate shift for most-likely prediction
                 if remaining_time_clean is not None and remaining_time_pert is not None:
                     remaining_time_shift = abs(remaining_time_clean - remaining_time_pert)
+                    entry['remaining_time_clean'] = float(remaining_time_clean)
+                    entry['remaining_time_perturbed'] = float(remaining_time_pert)
         
         entry['remaining_time_prediction_shift'] = remaining_time_shift
 
@@ -278,6 +282,8 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
     nll_perturbed_by_prefix = defaultdict(list)
     wasserstein_distance_by_prefix = defaultdict(list)
     remaining_time_shift_by_prefix = defaultdict(list)
+    remaining_time_clean_by_prefix = defaultdict(list)
+    remaining_time_perturbed_by_prefix = defaultdict(list)
     concept_name = 'Activity'
     
     for (case_name, prefix_len), entry in results.items():
@@ -329,6 +335,14 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
             remaining_time_shift = entry.get('remaining_time_prediction_shift')
             if remaining_time_shift is not None:
                 remaining_time_shift_by_prefix[prefix_len].append(remaining_time_shift)
+
+            # Extract clean and perturbed remaining time values
+            rt_clean = entry.get('remaining_time_clean')
+            if rt_clean is not None:
+                remaining_time_clean_by_prefix[prefix_len].append(rt_clean)
+            rt_pert = entry.get('remaining_time_perturbed')
+            if rt_pert is not None:
+                remaining_time_perturbed_by_prefix[prefix_len].append(rt_pert)
             
             # Calculate clean DLS (mean_orig vs suffix_orig)
             if 'original' in entry:
@@ -424,6 +438,8 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
     nll_perturbed = []
     wasserstein_distance = []
     remaining_time_prediction_shift = []
+    remaining_time_mae_clean = []
+    remaining_time_mae_perturbed = []
     
     for prefix_len in sorted(by_prefix.keys()):
         metrics_group = by_prefix[prefix_len]
@@ -517,6 +533,17 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
         remaining_time_prediction_shift.append(
             float(np.mean(remaining_time_shift_values)) if remaining_time_shift_values else 0.0
         )
+
+        # Aggregate clean and perturbed remaining time MAE (seconds → days)
+        _seconds_per_day = 86400.0
+        rt_clean_values = remaining_time_clean_by_prefix.get(prefix_len, [])
+        remaining_time_mae_clean.append(
+            float(np.mean(rt_clean_values)) / _seconds_per_day if rt_clean_values else 0.0
+        )
+        rt_pert_values = remaining_time_perturbed_by_prefix.get(prefix_len, [])
+        remaining_time_mae_perturbed.append(
+            float(np.mean(rt_pert_values)) / _seconds_per_day if rt_pert_values else 0.0
+        )
         
         if prob_metrics:
             top_k_activity_match_rates.append(np.mean([m.get('top_k_activity_match_rate', 0.0) for m in prob_metrics]))
@@ -548,6 +575,8 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
         'nll_perturbed': nll_perturbed,
         'wasserstein_distance': wasserstein_distance,
         'remaining_time_prediction_shift': remaining_time_prediction_shift,
+        'remaining_time_mae_clean': remaining_time_mae_clean,
+        'remaining_time_mae_perturbed': remaining_time_mae_perturbed,
     }
 
 

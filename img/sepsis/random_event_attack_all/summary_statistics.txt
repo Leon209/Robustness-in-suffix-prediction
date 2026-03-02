@@ -1,0 +1,69 @@
+============================================================
+Summary Statistics: Sepsis — random_event_attack_all
+============================================================
+
+Attack Success Rate
+  U-ED-LSTM: 0.0000
+  Camargo-LSTM: 0.2713
+
+Length Match Rate
+  U-ED-LSTM: 1.0000
+  Camargo-LSTM: 0.8137
+
+Clean DLS
+  U-ED-LSTM: 0.2367
+  Camargo-LSTM: 0.4672
+
+Perturbed DLS
+  U-ED-LSTM: 0.2367
+  Camargo-LSTM: 0.4480
+
+chrF Score (clean)
+  U-ED-LSTM: 0.3109
+  Camargo-LSTM: 0.4539
+
+chrF Score (perturbed)
+  U-ED-LSTM: 0.3089
+  Camargo-LSTM: 0.4075
+
+ROUGE-L (clean)
+  U-ED-LSTM: 0.3839
+  Camargo-LSTM: 0.5367
+
+ROUGE-L (perturbed)
+  U-ED-LSTM: 0.3840
+  Camargo-LSTM: 0.4785
+
+NLL (clean)
+  U-ED-LSTM: 4.1674
+  Camargo-LSTM: 22.9255
+
+NLL (perturbed)
+  U-ED-LSTM: 3.9779
+  Camargo-LSTM: 22.4311
+
+Wasserstein Distance
+  U-ED-LSTM: 0.1012
+  Camargo-LSTM: 0.2222
+
+Remaining Time MAE clean (d)
+  U-ED-LSTM: 1.5724
+  Camargo-LSTM: 0.0000
+
+Remaining Time MAE pert (d)
+  U-ED-LSTM: 1.5717
+  Camargo-LSTM: 0.0000
+
+Support Correct (clean)
+  U-ED-LSTM: 0.0378
+  Camargo-LSTM: 0.0001
+
+Support Correct (perturbed)
+  U-ED-LSTM: 0.0373
+  Camargo-LSTM: 0.0003
+
+============================================================
+Total Evaluations
+============================================================
+  U-ED-LSTM: 1754
+  Camargo-LSTM: 1754
