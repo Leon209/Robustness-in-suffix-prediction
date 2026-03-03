@@ -878,7 +878,8 @@ def generate_summary_table(
     attack: str,
     models: List[Dict[str, Any]],
     output_base_dir: str,
-    display_dataset: Optional[str] = None
+    display_dataset: Optional[str] = None,
+    max_prefix_length: Optional[int] = None
 ) -> str:
     """
     Generate and save summary statistics text file with average values per metric per model.
@@ -889,12 +890,15 @@ def generate_summary_table(
         models: List of model dictionaries with 'data', 'results', and 'name'
         output_base_dir: Base output directory
         display_dataset: Optional display name for the dataset shown in the header
+        max_prefix_length: If set, only prefix lengths <= this value are included.
 
     Returns:
         Summary text string
     """
     output_subdir = f"{output_base_dir}/{dataset}/{attack}"
     Path(output_subdir).mkdir(parents=True, exist_ok=True)
+
+    models = _filter_models_by_max_prefix(models, max_prefix_length)
 
     title = display_dataset if display_dataset is not None else dataset
     lines = []
