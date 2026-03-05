@@ -1,0 +1,53 @@
+============================================================
+Summary Statistics: Helpdesk — test
+============================================================
+
+Attack Success Rate
+  Weytjens-LSTM: 0.0000
+
+Length Match Rate
+  Weytjens-LSTM: 1.0000
+
+Clean DLS
+  Weytjens-LSTM: 1.0000
+
+Perturbed DLS
+  Weytjens-LSTM: 1.0000
+
+chrF Score (clean)
+  Weytjens-LSTM: 1.0000
+
+chrF Score (perturbed)
+  Weytjens-LSTM: 1.0000
+
+ROUGE-L (clean)
+  Weytjens-LSTM: 1.0000
+
+ROUGE-L (perturbed)
+  Weytjens-LSTM: 1.0000
+
+NLL (clean)
+  Weytjens-LSTM: 0.0000
+
+NLL (perturbed)
+  Weytjens-LSTM: 0.0000
+
+Wasserstein Distance
+  Weytjens-LSTM: 0.0000
+
+Remaining Time MAE clean (d)
+  Weytjens-LSTM: 18.3612
+
+Remaining Time MAE pert (d)
+  Weytjens-LSTM: 18.5186
+
+Support Correct (clean)
+  Weytjens-LSTM: 1.0000
+
+Support Correct (perturbed)
+  Weytjens-LSTM: 1.0000
+
+============================================================
+Total Evaluations
+============================================================
+  Weytjens-LSTM: 1898

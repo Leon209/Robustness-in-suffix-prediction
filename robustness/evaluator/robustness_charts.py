@@ -345,7 +345,8 @@ def plot_single_model_chart(
 
 def plot_subplot_most_likely(
     models: List[Dict[str, Any]],
-    title: str
+    title: str,
+    models_per_panel: Optional[Dict[str, List[Dict[str, Any]]]] = None
 ):
     """
     Plot a 3-panel subplot with attack success rate, DLS (clean vs perturbed),
@@ -354,6 +355,9 @@ def plot_subplot_most_likely(
     Args:
         models: List of model dictionaries with 'data', 'name', 'color', 'marker'
         title: Overall figure title (suptitle)
+        models_per_panel: Optional dict mapping panel keys to model lists.
+                         Keys: 'attack_success', 'dls', 'remaining_time'.
+                         If provided, each panel uses its models; otherwise all use models.
 
     Returns:
         matplotlib figure or None if no data
@@ -373,6 +377,7 @@ def plot_subplot_most_likely(
             'subtitle': 'Attack Success Rate',
             'ylim': (0, 1.05),
             'mode': 'single',
+            'panel_key': 'attack_success',
         },
         {
             'clean_key': 'clean_dls',
@@ -381,6 +386,7 @@ def plot_subplot_most_likely(
             'subtitle': 'DLS',
             'ylim': (0, 1.05),
             'mode': 'clean_pert',
+            'panel_key': 'dls',
         },
         {
             'clean_key': 'remaining_time_mae_clean',
@@ -389,11 +395,15 @@ def plot_subplot_most_likely(
             'subtitle': 'Remaining Time MAE (days)',
             'ylim': None,
             'mode': 'clean_pert',
+            'panel_key': 'remaining_time',
         },
     ]
 
     for ax1, spec in zip(axes, panel_specs):
-        panel_models = spec.get('models_override', models)
+        if models_per_panel and spec.get('panel_key') in models_per_panel:
+            panel_models = models_per_panel[spec['panel_key']]
+        else:
+            panel_models = spec.get('models_override', models)
         panel_prefix_lengths = _get_common_prefix_lengths(panel_models) or common_prefix_lengths
         model_counts = []
 
@@ -478,7 +488,8 @@ def plot_subplot_most_likely(
 
 def plot_subplot_probabilistic_prediction(
     models: List[Dict[str, Any]],
-    title: str
+    title: str,
+    models_per_panel: Optional[Dict[str, List[Dict[str, Any]]]] = None
 ):
     """
     Plot a 2-panel subplot with Support of Correct Prediction (clean vs perturbed)
@@ -487,6 +498,9 @@ def plot_subplot_probabilistic_prediction(
     Args:
         models: List of model dictionaries with 'data', 'name', 'color', 'marker'
         title: Overall figure title shown bold and left-aligned above the panels
+        models_per_panel: Optional dict mapping panel keys to model lists.
+                         Keys: 'support', 'wasserstein'.
+                         If provided, each panel uses its models; otherwise all use models.
 
     Returns:
         matplotlib figure or None if no data
@@ -507,6 +521,7 @@ def plot_subplot_probabilistic_prediction(
             'subtitle': 'Support of Correct Prediction',
             'ylim': (0, 1.05),
             'mode': 'clean_pert',
+            'panel_key': 'support',
         },
         {
             'key': 'wasserstein_distance',
@@ -514,41 +529,44 @@ def plot_subplot_probabilistic_prediction(
             'subtitle': 'Wasserstein Distance',
             'ylim': None,
             'mode': 'single',
+            'panel_key': 'wasserstein',
         },
     ]
 
     for ax1, spec in zip(axes, panel_specs):
+        panel_models = (models_per_panel or {}).get(spec.get('panel_key'), models)
+        panel_prefix_lengths = _get_common_prefix_lengths(panel_models) or common_prefix_lengths
         model_counts = []
 
         if spec['mode'] == 'single':
             model_values = []
-            for model in models:
+            for model in panel_models:
                 data = model['data']
                 values_dict = dict(zip(data['prefix_lengths'], data[spec['key']]))
                 counts_dict = dict(zip(data['prefix_lengths'], data['sample_counts']))
-                model_values.append([values_dict.get(p, 0) for p in common_prefix_lengths])
-                model_counts.append([counts_dict.get(p, 0) for p in common_prefix_lengths])
+                model_values.append([values_dict.get(p, 0) for p in panel_prefix_lengths])
+                model_counts.append([counts_dict.get(p, 0) for p in panel_prefix_lengths])
 
-            for model, values in zip(models, model_values):
-                ax1.plot(common_prefix_lengths, values, marker=model['marker'],
+            for model, values in zip(panel_models, model_values):
+                ax1.plot(panel_prefix_lengths, values, marker=model['marker'],
                          linewidth=1.2, markersize=5, label=model['name'],
                          color=model['color'], alpha=0.8)
 
         else:  # clean_pert
-            for model in models:
+            for model in panel_models:
                 data = model['data']
                 clean_dict = dict(zip(data['prefix_lengths'], data[spec['clean_key']]))
                 pert_dict = dict(zip(data['prefix_lengths'], data[spec['pert_key']]))
                 counts_dict = dict(zip(data['prefix_lengths'], data['sample_counts']))
 
-                clean_values = [clean_dict.get(p, 0) for p in common_prefix_lengths]
-                pert_values = [pert_dict.get(p, 0) for p in common_prefix_lengths]
-                model_counts.append([counts_dict.get(p, 0) for p in common_prefix_lengths])
+                clean_values = [clean_dict.get(p, 0) for p in panel_prefix_lengths]
+                pert_values = [pert_dict.get(p, 0) for p in panel_prefix_lengths]
+                model_counts.append([counts_dict.get(p, 0) for p in panel_prefix_lengths])
 
-                ax1.plot(common_prefix_lengths, clean_values, marker=model['marker'],
+                ax1.plot(panel_prefix_lengths, clean_values, marker=model['marker'],
                          linewidth=1.2, markersize=5, label=f"{model['name']} (clean)",
                          color=model['color'], alpha=0.9)
-                ax1.plot(common_prefix_lengths, pert_values, marker=model['marker'],
+                ax1.plot(panel_prefix_lengths, pert_values, marker=model['marker'],
                          linestyle='--', linewidth=1.2, markersize=5,
                          label=f"{model['name']} (perturbed)",
                          color=model['color'], alpha=0.6)
@@ -556,10 +574,10 @@ def plot_subplot_probabilistic_prediction(
         # Secondary axis: instance count as dashed line + fill
         ax2 = ax1.twinx()
         total_counts = [sum(counts[i] for counts in model_counts)
-                        for i in range(len(common_prefix_lengths))]
-        ax2.plot(common_prefix_lengths, total_counts,
+                        for i in range(len(panel_prefix_lengths))]
+        ax2.plot(panel_prefix_lengths, total_counts,
                  linestyle='--', color='gray', label='# instances')
-        ax2.fill_between(common_prefix_lengths, total_counts, color='gray', alpha=0.3)
+        ax2.fill_between(panel_prefix_lengths, total_counts, color='gray', alpha=0.3)
 
         ax1.set_xlabel('prefix len', labelpad=0.5)
         ax1.set_ylabel(spec['ylabel'], labelpad=0.5)
@@ -567,8 +585,8 @@ def plot_subplot_probabilistic_prediction(
 
         if spec['ylim']:
             ax1.set_ylim(spec['ylim'])
-        ax1.set_xlim(left=min(common_prefix_lengths) - 0.5,
-                     right=max(common_prefix_lengths) + 0.5)
+        ax1.set_xlim(left=min(panel_prefix_lengths) - 0.5,
+                     right=max(panel_prefix_lengths) + 0.5)
         ax2.set_ylim(bottom=0)
 
         for spine in ax1.spines.values():
@@ -599,6 +617,17 @@ def plot_subplot_probabilistic_prediction(
     return fig
 
 
+def _filter_models_by_names(
+    models: List[Dict[str, Any]],
+    model_names: Optional[List[str]]
+) -> List[Dict[str, Any]]:
+    """Return models whose 'name' is in model_names. If model_names is None or empty, return all."""
+    if not model_names:
+        return models
+    names_set = set(model_names)
+    return [m for m in models if m.get('name') in names_set]
+
+
 def _filter_models_by_max_prefix(
     models: List[Dict[str, Any]],
     max_prefix_length: Optional[int]
@@ -625,7 +654,8 @@ def generate_all_charts_for_comparison(
     models: List[Dict[str, Any]],
     output_base_dir: str,
     display_dataset: Optional[str] = None,
-    max_prefix_length: Optional[int] = None
+    max_prefix_length: Optional[int] = None,
+    chart_model_visibility: Optional[Dict[str, List[str]]] = None
 ) -> List[str]:
     """
     Generate all charts for a dataset-attack combination.
@@ -638,6 +668,8 @@ def generate_all_charts_for_comparison(
         display_dataset: Optional display name for the dataset shown in chart titles.
                          If None, falls back to dataset.
         max_prefix_length: If set, only prefix lengths <= this value are included in charts.
+        chart_model_visibility: Optional dict mapping chart keys to model names to show.
+                               If key present, only those models are shown; omitted charts use all.
     
     Returns:
         List of generated chart file paths
@@ -649,6 +681,12 @@ def generate_all_charts_for_comparison(
     # Apply prefix length cap if configured
     models = _filter_models_by_max_prefix(models, max_prefix_length)
 
+    def _models_for_chart(chart_key: str) -> List[Dict[str, Any]]:
+        """Get models for a chart key, applying chart_model_visibility if set."""
+        if chart_model_visibility and chart_key in chart_model_visibility:
+            return _filter_models_by_names(models, chart_model_visibility[chart_key])
+        return models
+
     charts_generated = []
     
     # Determine number of models
@@ -656,8 +694,9 @@ def generate_all_charts_for_comparison(
     
     # 1. Attack Success Rate
     try:
+        m = _models_for_chart('attack_success_rate')
         fig = plot_comparison_chart(
-            models, 'attack_success_rates',
+            m, 'attack_success_rates',
             'Attack Success Rate',
             f'{dataset} - {attack}: Attack Success Rate'
         )
@@ -671,8 +710,9 @@ def generate_all_charts_for_comparison(
     
     # 2. Length Match Rate
     try:
+        m = _models_for_chart('length_match_rate')
         fig = plot_comparison_chart(
-            models, 'length_match_rates',
+            m, 'length_match_rates',
             'Length Match Rate',
             f'{dataset} - {attack}: Length Match Rate'
         )
@@ -686,8 +726,9 @@ def generate_all_charts_for_comparison(
     
     # 3. Remaining Time MAE (days) - Clean vs Perturbed
     try:
+        m = _models_for_chart('remaining_time_mae')
         fig = plot_clean_pert_comparison(
-            models, 'remaining_time_mae_clean', 'remaining_time_mae_perturbed',
+            m, 'remaining_time_mae_clean', 'remaining_time_mae_perturbed',
             'Remaining Time MAE (days)',
             f'{dataset} - {attack}: Remaining Time MAE',
             ylim=None
@@ -702,8 +743,9 @@ def generate_all_charts_for_comparison(
     
     # 4. Clean DLS
     try:
+        m = _models_for_chart('clean_dls')
         fig = plot_comparison_chart(
-            models, 'clean_dls',
+            m, 'clean_dls',
             'Clean DLS',
             f'{dataset} - {attack}: Clean DLS'
         )
@@ -717,8 +759,9 @@ def generate_all_charts_for_comparison(
     
     # 5. DLS (Clean vs Perturbed)
     try:
+        m = _models_for_chart('dls_drop')
         fig = plot_clean_pert_comparison(
-            models, 'clean_dls', 'perturbed_dls',
+            m, 'clean_dls', 'perturbed_dls',
             'DLS',
             f'{dataset} - {attack}: DLS'
         )
@@ -732,9 +775,17 @@ def generate_all_charts_for_comparison(
     
     # 6. Subplot Most Likely (Attack Success Rate | DLS | Remaining Time MAE)
     try:
+        models_per_panel = None
+        if chart_model_visibility:
+            models_per_panel = {
+                'attack_success': _models_for_chart('subplot_most_likely.attack_success'),
+                'dls': _models_for_chart('subplot_most_likely.dls'),
+                'remaining_time': _models_for_chart('subplot_most_likely.remaining_time'),
+            }
         fig = plot_subplot_most_likely(
             models,
-            display_dataset if display_dataset is not None else dataset
+            display_dataset if display_dataset is not None else dataset,
+            models_per_panel=models_per_panel
         )
         if fig:
             save_path = f"{output_subdir}/subplot_most_likely.png"
@@ -746,8 +797,9 @@ def generate_all_charts_for_comparison(
 
     # 7. Modal Clean DLS with IQR
     try:
+        m = _models_for_chart('modal_clean_dls')
         fig = plot_comparison_chart(
-            models, 'modal_clean_dls',
+            m, 'modal_clean_dls',
             'Modal DLS on Clean Data',
             f'{dataset} - {attack}: Modal Clean DLS',
             include_iqr=True,
@@ -764,8 +816,9 @@ def generate_all_charts_for_comparison(
     
     # 8. Modal Perturbed DLS with IQR
     try:
+        m = _models_for_chart('modal_perturbed_dls')
         fig = plot_comparison_chart(
-            models, 'modal_perturbed_dls',
+            m, 'modal_perturbed_dls',
             'Modal DLS on Perturbed Data',
             f'{dataset} - {attack}: Modal Perturbed DLS',
             include_iqr=True,
@@ -780,10 +833,11 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating modal_perturbed_dls: {e}")
     
-    # 8. Support of Correct Prediction
+    # 9. Support of Correct Prediction
     try:
+        m = _models_for_chart('support_clean_pert')
         fig = plot_clean_pert_comparison(
-            models, 'support_clean', 'support_perturbed',
+            m, 'support_clean', 'support_perturbed',
             'Support of Correct Prediction',
             f'{dataset} - {attack}: Support of Correct Prediction'
         )
@@ -795,10 +849,11 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating support_clean_pert: {e}")
     
-    # 9. ROUGE-L Score
+    # 10. ROUGE-L Score
     try:
+        m = _models_for_chart('rouge_l')
         fig = plot_clean_pert_comparison(
-            models, 'rouge_l_clean', 'rouge_l_perturbed',
+            m, 'rouge_l_clean', 'rouge_l_perturbed',
             'ROUGE-L Score',
             f'{dataset} - {attack}: ROUGE-L Score'
         )
@@ -810,10 +865,11 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating rouge_l: {e}")
     
-    # 10. chrF Score
+    # 11. chrF Score
     try:
+        m = _models_for_chart('chrf')
         fig = plot_clean_pert_comparison(
-            models, 'chrf_clean', 'chrf_perturbed',
+            m, 'chrf_clean', 'chrf_perturbed',
             'chrF Score',
             f'{dataset} - {attack}: chrF Score'
         )
@@ -825,10 +881,11 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating chrf: {e}")
     
-    # 11. Negative Log Likelihood
+    # 12. Negative Log Likelihood
     try:
+        m = _models_for_chart('nll')
         fig = plot_clean_pert_comparison(
-            models, 'nll_clean', 'nll_perturbed',
+            m, 'nll_clean', 'nll_perturbed',
             'Negative Log Likelihood',
             f'{dataset} - {attack}: Negative Log Likelihood',
         )
@@ -840,10 +897,11 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating nll: {e}")
     
-    # 12. Wasserstein Distance (all models in one chart)
+    # 13. Wasserstein Distance (all models in one chart)
     try:
+        m = _models_for_chart('wasserstein_distance')
         fig = plot_comparison_chart(
-            models, 'wasserstein_distance',
+            m, 'wasserstein_distance',
             'Wasserstein Distance',
             f'{dataset} - {attack}: Wasserstein Distance',
             ylim=None
@@ -856,11 +914,18 @@ def generate_all_charts_for_comparison(
     except Exception as e:
         print(f"    Error generating wasserstein_distance: {e}")
 
-    # 13. Subplot Probabilistic Prediction (Support of Correct Prediction | Wasserstein Distance)
+    # 14. Subplot Probabilistic Prediction (Support of Correct Prediction | Wasserstein Distance)
     try:
+        models_per_panel = None
+        if chart_model_visibility:
+            models_per_panel = {
+                'support': _models_for_chart('subplot_probabilistic_prediction.support'),
+                'wasserstein': _models_for_chart('subplot_probabilistic_prediction.wasserstein'),
+            }
         fig = plot_subplot_probabilistic_prediction(
             models,
-            display_dataset if display_dataset is not None else dataset
+            display_dataset if display_dataset is not None else dataset,
+            models_per_panel=models_per_panel
         )
         if fig:
             save_path = f"{output_subdir}/subplot_probabilistic_prediction.png"
