@@ -1,5 +1,5 @@
 ============================================================
-Summary Statistics: Sepsis — last_event_attack_all
+Summary Statistics: Helpdesk — last_event_attack_all
 ============================================================
 
 Attack Success Rate
@@ -47,11 +47,11 @@ Wasserstein Distance
   Camargo-LSTM: 0.2164
 
 Remaining Time MAE clean (d)
-  U-ED-LSTM: 1.5724
+  U-ED-LSTM: 32.7217
   Camargo-LSTM: 0.0000
 
 Remaining Time MAE pert (d)
-  U-ED-LSTM: 1.5716
+  U-ED-LSTM: 32.7220
   Camargo-LSTM: 0.0000
 
 Support Correct (clean)
