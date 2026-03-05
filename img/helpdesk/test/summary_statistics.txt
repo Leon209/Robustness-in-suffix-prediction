@@ -9,43 +9,43 @@ Length Match Rate
   Weytjens-LSTM: 1.0000
 
 Clean DLS
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 Perturbed DLS
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 chrF Score (clean)
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 chrF Score (perturbed)
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 ROUGE-L (clean)
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 ROUGE-L (perturbed)
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 NLL (clean)
-  Weytjens-LSTM: 0.0000
+  Weytjens-LSTM: 23.0259
 
 NLL (perturbed)
-  Weytjens-LSTM: 0.0000
+  Weytjens-LSTM: 23.0259
 
 Wasserstein Distance
   Weytjens-LSTM: 0.0000
 
 Remaining Time MAE clean (d)
-  Weytjens-LSTM: 19.1191
+  Weytjens-LSTM: 33.3564
 
 Remaining Time MAE pert (d)
-  Weytjens-LSTM: 19.2765
+  Weytjens-LSTM: 33.5460
 
 Support Correct (clean)
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 Support Correct (perturbed)
-  Weytjens-LSTM: 1.0000
+  Weytjens-LSTM: 0.0000
 
 ============================================================
 Total Evaluations
