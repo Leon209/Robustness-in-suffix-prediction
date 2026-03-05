@@ -210,7 +210,19 @@ def prepare_robustness_results(
                     remaining_time_shift = abs(remaining_time_clean - remaining_time_pert)
                     entry['remaining_time_clean'] = float(remaining_time_clean)
                     entry['remaining_time_perturbed'] = float(remaining_time_pert)
-        
+
+        # Compute per-entry MAE (|predicted - ground_truth|) for remaining time
+        ground_truth_rt = _extract_ground_truth_remaining_time(prefix_orig, suffix_orig)
+        entry['remaining_time_mae_clean'] = None
+        entry['remaining_time_mae_perturbed'] = None
+        if ground_truth_rt is not None:
+            rt_clean = entry.get('remaining_time_clean')
+            rt_pert = entry.get('remaining_time_perturbed')
+            if rt_clean is not None:
+                entry['remaining_time_mae_clean'] = float(abs(rt_clean - ground_truth_rt))
+            if rt_pert is not None:
+                entry['remaining_time_mae_perturbed'] = float(abs(rt_pert - ground_truth_rt))
+
         entry['remaining_time_prediction_shift'] = remaining_time_shift
 
         # Calculate DLS between clean and perturbed predictions (most-likely)
@@ -260,6 +272,8 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
             - nll_perturbed: List of mean negative log-likelihood per prefix length (perturbed)
             - wasserstein_distance: List of mean Wasserstein distance per prefix length (between clean and perturbed distributions)
             - remaining_time_prediction_shift: List of mean remaining time prediction shift per prefix length (most-likely predictions only)
+            - remaining_time_mae_clean: List of mean |predicted_clean - ground_truth| remaining time per prefix length (days)
+            - remaining_time_mae_perturbed: List of mean |predicted_perturbed - ground_truth| remaining time per prefix length (days)
     """
     # Group metrics by prefix length
     by_prefix = defaultdict(list)
@@ -282,8 +296,8 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
     nll_perturbed_by_prefix = defaultdict(list)
     wasserstein_distance_by_prefix = defaultdict(list)
     remaining_time_shift_by_prefix = defaultdict(list)
-    remaining_time_clean_by_prefix = defaultdict(list)
-    remaining_time_perturbed_by_prefix = defaultdict(list)
+    remaining_time_mae_clean_by_prefix = defaultdict(list)
+    remaining_time_mae_perturbed_by_prefix = defaultdict(list)
     concept_name = 'Activity'
     
     for (case_name, prefix_len), entry in results.items():
@@ -336,13 +350,13 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
             if remaining_time_shift is not None:
                 remaining_time_shift_by_prefix[prefix_len].append(remaining_time_shift)
 
-            # Extract clean and perturbed remaining time values
-            rt_clean = entry.get('remaining_time_clean')
-            if rt_clean is not None:
-                remaining_time_clean_by_prefix[prefix_len].append(rt_clean)
-            rt_pert = entry.get('remaining_time_perturbed')
-            if rt_pert is not None:
-                remaining_time_perturbed_by_prefix[prefix_len].append(rt_pert)
+            # Extract per-entry MAE (|predicted - ground_truth| in seconds)
+            rt_mae_clean = entry.get('remaining_time_mae_clean')
+            if rt_mae_clean is not None:
+                remaining_time_mae_clean_by_prefix[prefix_len].append(rt_mae_clean)
+            rt_mae_pert = entry.get('remaining_time_mae_perturbed')
+            if rt_mae_pert is not None:
+                remaining_time_mae_perturbed_by_prefix[prefix_len].append(rt_mae_pert)
             
             # Calculate clean DLS (mean_orig vs suffix_orig)
             if 'original' in entry:
@@ -534,15 +548,15 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
             float(np.mean(remaining_time_shift_values)) if remaining_time_shift_values else 0.0
         )
 
-        # Aggregate clean and perturbed remaining time MAE (seconds → days)
+        # Aggregate remaining time MAE: mean of |predicted - ground_truth| per entry (seconds → days)
         _seconds_per_day = 86400.0
-        rt_clean_values = remaining_time_clean_by_prefix.get(prefix_len, [])
+        rt_mae_clean_values = remaining_time_mae_clean_by_prefix.get(prefix_len, [])
         remaining_time_mae_clean.append(
-            float(np.mean(rt_clean_values)) / _seconds_per_day if rt_clean_values else 0.0
+            float(np.mean(rt_mae_clean_values)) / _seconds_per_day if rt_mae_clean_values else 0.0
         )
-        rt_pert_values = remaining_time_perturbed_by_prefix.get(prefix_len, [])
+        rt_mae_pert_values = remaining_time_mae_perturbed_by_prefix.get(prefix_len, [])
         remaining_time_mae_perturbed.append(
-            float(np.mean(rt_pert_values)) / _seconds_per_day if rt_pert_values else 0.0
+            float(np.mean(rt_mae_pert_values)) / _seconds_per_day if rt_mae_pert_values else 0.0
         )
         
         if prob_metrics:
@@ -582,6 +596,29 @@ def calculate_aggregate_metrics(results: Dict[Tuple[str, int], Dict[str, Any]]) 
 
 # ============================================================================
 # Helper Functions
+
+def _extract_ground_truth_remaining_time(prefix, suffix) -> Optional[float]:
+    """
+    Extract ground truth remaining time (seconds) from prefix and suffix.
+    Supports: (1) Activity models: suffix = list of event dicts, last has case_elapsed_time.
+              (2) Weytjens: suffix = [{'case_elapsed_time': total_duration}].
+    Returns None if extraction fails.
+    """
+    if not prefix or not suffix:
+        return None
+    try:
+        last_prefix = prefix[-1]
+        if not isinstance(last_prefix, dict) or 'case_elapsed_time' not in last_prefix:
+            return None
+        current_time = float(last_prefix['case_elapsed_time'])
+        last_suffix = suffix[-1] if isinstance(suffix, list) and len(suffix) > 0 else None
+        if last_suffix is None or not isinstance(last_suffix, dict) or 'case_elapsed_time' not in last_suffix:
+            return None
+        final_time = float(last_suffix['case_elapsed_time'])
+        return final_time - current_time
+    except (TypeError, IndexError, KeyError):
+        return None
+
 
 def save_results(path: str, results: Dict[Tuple[str, int], Dict[str, Any]]) -> None:
     """Save robustness results to a pickle file."""

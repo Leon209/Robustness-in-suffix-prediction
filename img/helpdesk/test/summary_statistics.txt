@@ -36,10 +36,10 @@ Wasserstein Distance
   Weytjens-LSTM: 0.0000
 
 Remaining Time MAE clean (d)
-  Weytjens-LSTM: 18.3612
+  Weytjens-LSTM: 19.1191
 
 Remaining Time MAE pert (d)
-  Weytjens-LSTM: 18.5186
+  Weytjens-LSTM: 19.2765
 
 Support Correct (clean)
   Weytjens-LSTM: 1.0000
