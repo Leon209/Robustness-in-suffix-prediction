@@ -1,53 +1,53 @@
 ============================================================
-Summary Statistics: Helpdesk — test
+Summary Statistics: BPIC20 — redo_activity
 ============================================================
 
 Attack Success Rate
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.0000
 
 Length Match Rate
-  Weytjens-LSTM: 1.0000
+  U-ED-LSTM: 1.0000
 
 Clean DLS
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.6509
 
 Perturbed DLS
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.6509
 
 chrF Score (clean)
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.4476
 
 chrF Score (perturbed)
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.4577
 
 ROUGE-L (clean)
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.7923
 
 ROUGE-L (perturbed)
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.7950
 
 NLL (clean)
-  Weytjens-LSTM: 23.0259
+  U-ED-LSTM: 9.6180
 
 NLL (perturbed)
-  Weytjens-LSTM: 23.0259
+  U-ED-LSTM: 9.7122
 
 Wasserstein Distance
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.0673
 
 Remaining Time MAE clean (d)
-  Weytjens-LSTM: 33.3564
+  U-ED-LSTM: 7.1503
 
 Remaining Time MAE pert (d)
-  Weytjens-LSTM: 33.5460
+  U-ED-LSTM: 7.1503
 
 Support Correct (clean)
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.1237
 
 Support Correct (perturbed)
-  Weytjens-LSTM: 0.0000
+  U-ED-LSTM: 0.1198
 
 ============================================================
 Total Evaluations
 ============================================================
-  Weytjens-LSTM: 1898
+  U-ED-LSTM: 749
