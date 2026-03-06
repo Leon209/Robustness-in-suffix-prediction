@@ -122,8 +122,10 @@ def visualize_datasets(
     clean_data_path: str,
     perturbed_data_path: str,
     output_path: Optional[str] = None,
+    title: Optional[str] = None,
     alpha: float = 0.6,
-    figsize: Tuple[int, int] = (12, 8)
+    figsize: Tuple[int, int] = (12, 8),
+    dpi: int = 300
 ) -> None:
     """
     Visualize clean and perturbed datasets in 2D space.
@@ -132,8 +134,10 @@ def visualize_datasets(
         clean_data_path: Path to clean dataset pickle file
         perturbed_data_path: Path to perturbed dataset pickle file
         output_path: Optional path to save the plot. If None, displays the plot.
+        title: Optional plot title (e.g. perturbation type like "Redo Activity"). If None, uses default.
         alpha: Transparency level for scatter points (default: 0.6)
         figsize: Figure size tuple (default: (12, 8))
+        dpi: Resolution for saved figure (default: 300)
     """
     print(f"Loading clean dataset from: {clean_data_path}")
     clean_data = load_and_extract_prefixes(clean_data_path)
@@ -196,13 +200,15 @@ def visualize_datasets(
     
     plt.xlabel(f'PC1 ({explained_variance[0]:.2%} variance)', fontsize=12)
     plt.ylabel(f'PC2 ({explained_variance[1]:.2%} variance)', fontsize=12)
-    plt.title('Clean vs Perturbed Dataset Visualization (2D PCA)', fontsize=14, fontweight='bold')
+    plot_title = title if title is not None else 'Clean vs Perturbed Dataset Visualization (2D PCA)'
+    plt.title(plot_title, fontsize=14, fontweight='bold')
     plt.legend(fontsize=11)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+        plt.savefig(output_path, dpi=dpi, bbox_inches='tight')
         print(f"Plot saved to: {output_path}")
     else:
         plt.show()
