@@ -47,11 +47,11 @@ Wasserstein Distance
   Camargo-LSTM: 0.5039
 
 Remaining Time MAE clean (d)
-  U-ED-LSTM: 20.9467
+  U-ED-LSTM: 9.3855
   Camargo-LSTM: 0.0000
 
 Remaining Time MAE pert (d)
-  U-ED-LSTM: 19.9261
+  U-ED-LSTM: 9.8544
   Camargo-LSTM: 0.0000
 
 Support Correct (clean)

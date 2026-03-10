@@ -996,7 +996,16 @@ def generate_summary_table(
             data = model['data']
             values = data.get(key, [])
             if values:
-                avg = float(np.mean([v for v in values if v is not None]))
+                # Use sample_counts for weighted average (true mean over all samples)
+                counts = data.get('sample_counts', []) or []
+                if len(counts) != len(values):
+                    counts = [1] * len(values)
+                valid = [(v, c) for v, c in zip(values, counts) if v is not None and c is not None and c > 0]
+                if valid:
+                    vs, ws = zip(*valid)
+                    avg = float(np.average(vs, weights=ws))
+                else:
+                    avg = float(np.mean([v for v in values if v is not None]))
                 lines.append(f"  {model['name']}: {avg:.4f}")
             else:
                 lines.append(f"  {model['name']}: n/a")
