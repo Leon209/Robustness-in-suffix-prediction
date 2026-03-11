@@ -3,64 +3,64 @@ Summary Statistics: Sepsis — random_event_attack_all
 ============================================================
 
 Attack Success Rate
-  U-ED-LSTM: 0.0499
-  Camargo-LSTM: 0.2713
+  U-ED-LSTM: 0.0536
+  Camargo-LSTM: 0.2759
 
 Length Match Rate
-  U-ED-LSTM: 0.9501
-  Camargo-LSTM: 0.8137
+  U-ED-LSTM: 0.9464
+  Camargo-LSTM: 0.8073
 
 Clean DLS
-  U-ED-LSTM: 0.5672
-  Camargo-LSTM: 0.4672
+  U-ED-LSTM: 0.4901
+  Camargo-LSTM: 0.3900
 
 Perturbed DLS
-  U-ED-LSTM: 0.5692
-  Camargo-LSTM: 0.4480
+  U-ED-LSTM: 0.4897
+  Camargo-LSTM: 0.3589
 
 chrF Score (clean)
-  U-ED-LSTM: 0.0321
-  Camargo-LSTM: 0.4539
+  U-ED-LSTM: 0.0283
+  Camargo-LSTM: 0.3492
 
 chrF Score (perturbed)
-  U-ED-LSTM: 0.0508
-  Camargo-LSTM: 0.4075
+  U-ED-LSTM: 0.0326
+  Camargo-LSTM: 0.2793
 
 ROUGE-L (clean)
-  U-ED-LSTM: 0.2422
-  Camargo-LSTM: 0.5367
+  U-ED-LSTM: 0.1911
+  Camargo-LSTM: 0.4365
 
 ROUGE-L (perturbed)
-  U-ED-LSTM: 0.2388
-  Camargo-LSTM: 0.4785
+  U-ED-LSTM: 0.2019
+  Camargo-LSTM: 0.3499
 
 NLL (clean)
-  U-ED-LSTM: 5.8131
-  Camargo-LSTM: 22.9255
+  U-ED-LSTM: 7.2824
+  Camargo-LSTM: 22.8881
 
 NLL (perturbed)
-  U-ED-LSTM: 5.6651
-  Camargo-LSTM: 22.4311
+  U-ED-LSTM: 7.4299
+  Camargo-LSTM: 22.8364
 
 Wasserstein Distance
-  U-ED-LSTM: 0.1018
-  Camargo-LSTM: 0.2222
+  U-ED-LSTM: 0.0979
+  Camargo-LSTM: 0.2992
 
 Remaining Time MAE clean (d)
-  U-ED-LSTM: 32.5694
+  U-ED-LSTM: 30.2470
   Camargo-LSTM: 0.0000
 
 Remaining Time MAE pert (d)
-  U-ED-LSTM: 32.5705
+  U-ED-LSTM: 30.2468
   Camargo-LSTM: 0.0000
 
 Support Correct (clean)
-  U-ED-LSTM: 0.0645
+  U-ED-LSTM: 0.0509
   Camargo-LSTM: 0.0001
 
 Support Correct (perturbed)
-  U-ED-LSTM: 0.0641
-  Camargo-LSTM: 0.0003
+  U-ED-LSTM: 0.0513
+  Camargo-LSTM: 0.0001
 
 ============================================================
 Total Evaluations
