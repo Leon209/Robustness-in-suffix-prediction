@@ -449,8 +449,10 @@ class GradientAscentAttacker(Evaluation):
                               true_suffix,
                               prefix_len,
                               max_iterations=100,
-                              step_size=0.01,
-                              epsilon=0.1,
+                              embedding_step_size=0.5,
+                              numerical_step_size=0.01,
+                              embedding_epsilon=5.0,
+                              numerical_epsilon=0.1,
                               early_stop=True,
                               attackable_features="all",
                               enable_time_shifting=False):
@@ -462,8 +464,10 @@ class GradientAscentAttacker(Evaluation):
             true_suffix: True suffix [list of cat tensors, list of num tensors]
             prefix_len: Length of prefix
             max_iterations: Maximum number of gradient ascent steps
-            step_size: Learning rate for gradient ascent
-            epsilon: Maximum allowed perturbation (L_inf norm)
+            embedding_step_size: Learning rate for embedding perturbations
+            numerical_step_size: Learning rate for numerical feature perturbations
+            embedding_epsilon: Maximum allowed perturbation for embeddings (L_inf norm)
+            numerical_epsilon: Maximum allowed perturbation for numerical features (L_inf norm)
             early_stop: Stop when prediction becomes wrong
             attackable_features: Which features to attack. "all" attacks all features,
                                 "time_features" attacks only event_elapsed_time
@@ -641,22 +645,19 @@ class GradientAscentAttacker(Evaluation):
                     if attackable_features == "all":
                         for embed_pert in embedding_perturbations:
                             if embed_pert.grad is not None:
-                                # Sign-based gradient ascent (more stable)
-                                perturbation = step_size * embed_pert.grad.sign()
+                                perturbation = embedding_step_size * embed_pert.grad.sign()
                                 embed_pert.add_(perturbation)
-                                # Clip to epsilon ball
-                                embed_pert.clamp_(-epsilon, epsilon)
+                                embed_pert.clamp_(-embedding_epsilon, embedding_epsilon)
                     
                     # Update numerical features only for attackable ones
                     for i, num_t in enumerate(perturbed_prefix[1]):
                         if i in attackable_num_indices and num_t.grad is not None:
-                            perturbation = step_size * num_t.grad.sign()
+                            perturbation = numerical_step_size * num_t.grad.sign()
                             num_t.add_(perturbation)
-                            # Clip to epsilon ball around original
                             orig_tensor = prefix[1][i]
                             num_t.clamp_(
-                                orig_tensor - epsilon,
-                                orig_tensor + epsilon
+                                orig_tensor - numerical_epsilon,
+                                orig_tensor + numerical_epsilon
                             )
                     
                     # Recalculate dependent time features if enabled
@@ -665,42 +666,25 @@ class GradientAscentAttacker(Evaluation):
                 
                 # Check if prediction changed
                 if early_stop:
-                    # Project current embeddings to indices for prediction check
-                    # Detach prefix tensors to avoid boolean tensor error in _predict_suffix_with_means
+                    # Recompute embeddings from updated perturbations (after gradient step)
+                    with torch.no_grad():
+                        updated_embeddings = [base + pert for base, pert in
+                                              zip(base_embeddings, embedding_perturbations)]
                     check_prefix = [
                         [t.detach().clone() for t in prefix[0]],
                         [t.detach().clone() for t in perturbed_prefix[1]]
                     ]
-                    # Only project embeddings if attacking all features
                     if attackable_features == "all":
-                        for i, (pert_emb, embed_layer) in enumerate(
-                            zip(perturbed_embeddings, self.embedding_layers)
+                        for i, (upd_emb, embed_layer) in enumerate(
+                            zip(updated_embeddings, self.embedding_layers)
                         ):
-                            check_indices = self._project_embeddings_to_indices(
-                                pert_emb.detach(), embed_layer, prefix[0][i], embedding_index=i
+                            check_prefix[0][i] = self._project_embeddings_to_indices(
+                                upd_emb.detach(), embed_layer, prefix[0][i], embedding_index=i
                             )
-                            check_prefix[0][i] = check_indices
                     
-                    # Get current prediction
                     current_pred = self._predict_suffix_with_means(check_prefix, prefix_len)
                     if not self._check_prediction_correct(current_pred, original_readable_suffix):
-                        # Prediction changed! Project final embeddings to indices
-                        # Detach prefix tensors to avoid boolean tensor error
-                        final_prefix = [
-                            [t.detach().clone() for t in prefix[0]],
-                            [t.detach().clone() for t in perturbed_prefix[1]]
-                        ]
-                        # Only project embeddings if attacking all features
-                        if attackable_features == "all":
-                            for i, (pert_emb, embed_layer) in enumerate(
-                                zip(perturbed_embeddings, self.embedding_layers)
-                            ):
-                                final_indices = self._project_embeddings_to_indices(
-                                    pert_emb.detach(), embed_layer, prefix[0][i], embedding_index=i
-                                )
-                                final_prefix[0][i] = final_indices
-                        
-                        return final_prefix, iteration + 1, True
+                        return check_prefix, iteration + 1, True
                         
             except Exception as e:
                 # If forward pass fails, break
@@ -708,33 +692,30 @@ class GradientAscentAttacker(Evaluation):
                 break
         
         # Attack didn't succeed or reached max iterations
-        # Return final perturbed prefix with projected indices
-        # Get final perturbed embeddings
-        final_perturbed_embeddings = []
-        for base_emb, embed_pert in zip(base_embeddings, embedding_perturbations):
-            final_pert_emb = base_emb + embed_pert.detach()
-            final_perturbed_embeddings.append(final_pert_emb)
-        
+        # Recompute embeddings from final perturbations and project to indices
         final_prefix = [
             [t.clone() for t in prefix[0]],
             [t.detach().clone() for t in perturbed_prefix[1]]
         ]
-        # Only project embeddings if attacking all features
         if attackable_features == "all":
-            for i, (pert_emb, embed_layer) in enumerate(
-                zip(final_perturbed_embeddings, self.embedding_layers)
+            with torch.no_grad():
+                final_embeddings = [base + pert.detach() for base, pert in
+                                    zip(base_embeddings, embedding_perturbations)]
+            for i, (fin_emb, embed_layer) in enumerate(
+                zip(final_embeddings, self.embedding_layers)
             ):
-                final_indices = self._project_embeddings_to_indices(
-                    pert_emb, embed_layer, prefix[0][i], embedding_index=i
+                final_prefix[0][i] = self._project_embeddings_to_indices(
+                    fin_emb, embed_layer, prefix[0][i], embedding_index=i
                 )
-                final_prefix[0][i] = final_indices
         
         return final_prefix, max_iterations, False
     
     def attack_predefined_prefixes(self,
                                    max_iterations=100,
-                                   step_size=0.01,
-                                   epsilon=0.1,
+                                   embedding_step_size=0.5,
+                                   numerical_step_size=0.01,
+                                   embedding_epsilon=5.0,
+                                   numerical_epsilon=0.1,
                                    early_stop=True,
                                    attackable_features="all",
                                    enable_time_shifting=False):
@@ -743,8 +724,10 @@ class GradientAscentAttacker(Evaluation):
         
         Args:
             max_iterations: Maximum number of gradient ascent steps per attack
-            step_size: Learning rate for gradient ascent
-            epsilon: Maximum allowed perturbation
+            embedding_step_size: Learning rate for embedding perturbations
+            numerical_step_size: Learning rate for numerical feature perturbations
+            embedding_epsilon: Maximum allowed perturbation for embeddings (L_inf norm)
+            numerical_epsilon: Maximum allowed perturbation for numerical features (L_inf norm)
             early_stop: Stop when prediction becomes wrong
             attackable_features: Which features to attack. "all" attacks all features,
                                 "time_features" attacks only event_elapsed_time
@@ -790,8 +773,10 @@ class GradientAscentAttacker(Evaluation):
                 true_suffix=suffix,
                 prefix_len=prefix_len,
                 max_iterations=max_iterations,
-                step_size=step_size,
-                epsilon=epsilon,
+                embedding_step_size=embedding_step_size,
+                numerical_step_size=numerical_step_size,
+                embedding_epsilon=embedding_epsilon,
+                numerical_epsilon=numerical_epsilon,
                 early_stop=early_stop,
                 attackable_features=attackable_features,
                 enable_time_shifting=enable_time_shifting
