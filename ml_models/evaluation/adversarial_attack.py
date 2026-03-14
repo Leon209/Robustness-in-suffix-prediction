@@ -51,6 +51,32 @@ class GradientAscentAttacker(Evaluation):
         else:
             self.concept_name_embedding_index = None
         
+        # Build per-embedding sets of invalid category indices (nan/None keys)
+        # so they are excluded during nearest-neighbor projection.
+        self._invalid_indices_per_embedding = []
+        prefix_categories = [cat_tuple for cat_tuple in self.dataset.all_categories[0]
+                             if cat_tuple[0] in self.prefix_cat_attributes]
+        for cat_tuple in prefix_categories:
+            invalid = set()
+            for key, idx in cat_tuple[2].items():
+                if key is None or (isinstance(key, float) and key != key):
+                    invalid.add(idx)
+            self._invalid_indices_per_embedding.append(invalid)
+        
+        # Precompute encoded floor values for non-negative time features.
+        # Raw value 0 maps to a specific encoded value (e.g. via StandardScaler),
+        # so we transform 0 through the encoder to get the correct minimum.
+        self._nonneg_encoded_floors = {}
+        for name in ["case_elapsed_time", "event_elapsed_time"]:
+            if name in self.all_num_attributes:
+                idx = self.all_num_attributes.index(name)
+                encoder = self.dataset.encoder_decoder.continuous_encoders.get(name)
+                if encoder is not None:
+                    encoded_zero = float(encoder.transform([[0.0]])[0][0])
+                else:
+                    encoded_zero = 0.0
+                self._nonneg_encoded_floors[idx] = encoded_zero
+        
     def _check_prediction_correct(self, predicted_suffix: List[Dict], true_suffix: List[Dict]) -> bool:
         """
         Check if predicted suffix matches true suffix.
@@ -372,7 +398,8 @@ class GradientAscentAttacker(Evaluation):
     def _project_embeddings_to_indices(self, perturbed_embeds, embedding_layer, original_indices, embedding_index=None):
         """
         Project perturbed embeddings back to nearest valid category indices.
-        Preserves EOS status for concept_name feature to maintain prefix length.
+        Excludes invalid (nan/None) categories and preserves EOS status for
+        concept_name feature to maintain prefix length.
         
         Args:
             perturbed_embeds: Perturbed embedding tensor [batch, seq_len, embed_dim]
@@ -383,63 +410,45 @@ class GradientAscentAttacker(Evaluation):
         Returns:
             New category indices [batch, seq_len]
         """
-        # Get all embedding vectors from the embedding layer
-        num_classes = embedding_layer.num_embeddings
         all_embeds = embedding_layer.weight  # [num_classes, embed_dim]
         
-        # Compute distances from perturbed embeddings to all class embeddings
-        # perturbed_embeds: [batch, seq_len, embed_dim]
-        # all_embeds: [num_classes, embed_dim]
-        
-        # Reshape for distance computation
         batch_size, seq_len, embed_dim = perturbed_embeds.shape
         perturbed_flat = perturbed_embeds.view(-1, embed_dim)  # [batch*seq_len, embed_dim]
         
-        # Compute L2 distances
         distances = torch.cdist(perturbed_flat, all_embeds, p=2)  # [batch*seq_len, num_classes]
         
-        # Check if this is the concept_name embedding (to preserve EOS status)
+        if distances.numel() > 0:
+            large_value = distances.max() * 1000.0 + 1.0
+        else:
+            large_value = torch.tensor(1e10, device=distances.device, dtype=distances.dtype)
+        
+        # Mask out invalid (nan/None) category indices for this embedding
+        if embedding_index is not None and embedding_index < len(self._invalid_indices_per_embedding):
+            for inv_idx in self._invalid_indices_per_embedding[embedding_index]:
+                distances[:, inv_idx] = large_value
+        
         is_concept_name = (embedding_index is not None and 
                           self.concept_name_embedding_index is not None and
                           embedding_index == self.concept_name_embedding_index)
         
         if is_concept_name:
-            # Preserve EOS status for concept_name to maintain prefix length
-            # Reshape original_indices for element-wise comparison
-            original_flat = original_indices.view(-1)  # [batch*seq_len]
-            
-            # Find nearest class for each position
-            nearest_indices_flat = distances.argmin(dim=1)  # [batch*seq_len]
-            
-            # Preserve EOS status:
-            # - If original was EOS, keep it as EOS
-            # - If original was not EOS, find nearest non-EOS class
+            original_flat = original_indices.view(-1)
             eos_mask = (original_flat == self.eos_id)
             
-            # For non-EOS positions, mask out EOS from distance computation
-            # Set EOS distances to a very large value so they won't be selected
+            # For non-EOS positions, also mask out EOS
             distances_masked = distances.clone()
-            # Use a large value that's much larger than any real distance
-            if distances.numel() > 0:
-                max_distance = distances.max()
-                large_value = max_distance * 1000.0 + 1.0
-            else:
-                large_value = torch.tensor(1e10, device=distances.device, dtype=distances.dtype)
             distances_masked[:, self.eos_id] = large_value
             
-            # Find nearest non-EOS class for non-EOS positions
-            nearest_non_eos_flat = distances_masked.argmin(dim=1)  # [batch*seq_len]
+            nearest_non_eos_flat = distances_masked.argmin(dim=1)
             
-            # Combine: use EOS where original was EOS, otherwise use nearest non-EOS
-            nearest_indices_flat = torch.where(eos_mask, 
-                                               torch.full_like(nearest_indices_flat, self.eos_id),
-                                               nearest_non_eos_flat)
-            
-            # Reshape back
+            nearest_indices_flat = torch.where(
+                eos_mask,
+                torch.full_like(nearest_non_eos_flat, self.eos_id),
+                nearest_non_eos_flat
+            )
             nearest_indices = nearest_indices_flat.view(batch_size, seq_len)
         else:
-            # For non-concept_name features, use standard projection
-            nearest_indices = distances.argmin(dim=1)  # [batch*seq_len]
+            nearest_indices = distances.argmin(dim=1)
             nearest_indices = nearest_indices.view(batch_size, seq_len)
         
         return nearest_indices
@@ -659,6 +668,8 @@ class GradientAscentAttacker(Evaluation):
                                 orig_tensor - numerical_epsilon,
                                 orig_tensor + numerical_epsilon
                             )
+                            if i in self._nonneg_encoded_floors:
+                                num_t.clamp_(min=self._nonneg_encoded_floors[i])
                     
                     # Recalculate dependent time features if enabled
                     if attackable_features == "time_features" and enable_time_shifting:
