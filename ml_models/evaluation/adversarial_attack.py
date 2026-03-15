@@ -51,25 +51,39 @@ class GradientAscentAttacker(Evaluation):
         else:
             self.concept_name_embedding_index = None
         
-        # Build per-embedding sets of invalid category indices (nan/None keys)
+        # Build per-embedding sets of invalid category indices (nan/None and EOS)
         # so they are excluded during nearest-neighbor projection.
         self._invalid_indices_per_embedding = []
+        self._eos_index_per_embedding = []
         prefix_categories = [cat_tuple for cat_tuple in self.dataset.all_categories[0]
                              if cat_tuple[0] in self.prefix_cat_attributes]
         for cat_tuple in prefix_categories:
             invalid = set()
+            eos_idx = None
             for key, idx in cat_tuple[2].items():
                 if key is None or (isinstance(key, float) and key != key):
                     invalid.add(idx)
+                if key == self.eos_value:
+                    eos_idx = idx
+                    invalid.add(idx)
             self._invalid_indices_per_embedding.append(invalid)
+            self._eos_index_per_embedding.append(eos_idx)
+        
+        # Identify time feature indices within prefix_num_attributes (= order of prefix[1])
+        _TIME_FEATURE_NAMES = {"case_elapsed_time", "event_elapsed_time",
+                               "day_in_week", "seconds_in_day"}
+        self._time_feature_prefix_indices = set()
+        for i, name in enumerate(self.prefix_num_attributes):
+            if name in _TIME_FEATURE_NAMES:
+                self._time_feature_prefix_indices.add(i)
         
         # Precompute encoded floor values for non-negative time features.
         # Raw value 0 maps to a specific encoded value (e.g. via StandardScaler),
         # so we transform 0 through the encoder to get the correct minimum.
         self._nonneg_encoded_floors = {}
         for name in ["case_elapsed_time", "event_elapsed_time"]:
-            if name in self.all_num_attributes:
-                idx = self.all_num_attributes.index(name)
+            if name in self.prefix_num_attributes:
+                idx = self.prefix_num_attributes.index(name)
                 encoder = self.dataset.encoder_decoder.continuous_encoders.get(name)
                 if encoder is not None:
                     encoded_zero = float(encoder.transform([[0.0]])[0][0])
@@ -398,8 +412,9 @@ class GradientAscentAttacker(Evaluation):
     def _project_embeddings_to_indices(self, perturbed_embeds, embedding_layer, original_indices, embedding_index=None):
         """
         Project perturbed embeddings back to nearest valid category indices.
-        Excludes invalid (nan/None) categories and preserves EOS status for
-        concept_name feature to maintain prefix length.
+        Excludes invalid categories (nan/None and EOS) so that perturbations
+        never introduce EOS tokens. For the concept_name feature, positions
+        that were originally EOS are kept as EOS to preserve prefix length.
         
         Args:
             perturbed_embeds: Perturbed embedding tensor [batch, seq_len, embed_dim]
@@ -413,45 +428,36 @@ class GradientAscentAttacker(Evaluation):
         all_embeds = embedding_layer.weight  # [num_classes, embed_dim]
         
         batch_size, seq_len, embed_dim = perturbed_embeds.shape
-        perturbed_flat = perturbed_embeds.view(-1, embed_dim)  # [batch*seq_len, embed_dim]
+        perturbed_flat = perturbed_embeds.view(-1, embed_dim)
         
-        distances = torch.cdist(perturbed_flat, all_embeds, p=2)  # [batch*seq_len, num_classes]
+        distances = torch.cdist(perturbed_flat, all_embeds, p=2)
         
         if distances.numel() > 0:
             large_value = distances.max() * 1000.0 + 1.0
         else:
             large_value = torch.tensor(1e10, device=distances.device, dtype=distances.dtype)
         
-        # Mask out invalid (nan/None) category indices for this embedding
+        # Mask out invalid indices (nan/None and EOS) for this embedding
         if embedding_index is not None and embedding_index < len(self._invalid_indices_per_embedding):
             for inv_idx in self._invalid_indices_per_embedding[embedding_index]:
                 distances[:, inv_idx] = large_value
         
+        nearest_indices_flat = distances.argmin(dim=1)
+        
+        # For concept_name: restore EOS at positions that were originally EOS
         is_concept_name = (embedding_index is not None and 
                           self.concept_name_embedding_index is not None and
                           embedding_index == self.concept_name_embedding_index)
-        
         if is_concept_name:
             original_flat = original_indices.view(-1)
             eos_mask = (original_flat == self.eos_id)
-            
-            # For non-EOS positions, also mask out EOS
-            distances_masked = distances.clone()
-            distances_masked[:, self.eos_id] = large_value
-            
-            nearest_non_eos_flat = distances_masked.argmin(dim=1)
-            
             nearest_indices_flat = torch.where(
                 eos_mask,
-                torch.full_like(nearest_non_eos_flat, self.eos_id),
-                nearest_non_eos_flat
+                torch.full_like(nearest_indices_flat, self.eos_id),
+                nearest_indices_flat
             )
-            nearest_indices = nearest_indices_flat.view(batch_size, seq_len)
-        else:
-            nearest_indices = distances.argmin(dim=1)
-            nearest_indices = nearest_indices.view(batch_size, seq_len)
         
-        return nearest_indices
+        return nearest_indices_flat.view(batch_size, seq_len)
     
     def gradient_ascent_attack(self,
                               prefix,
@@ -459,9 +465,9 @@ class GradientAscentAttacker(Evaluation):
                               prefix_len,
                               max_iterations=100,
                               embedding_step_size=0.5,
-                              numerical_step_size=0.01,
+                              time_step_size=0.01,
                               embedding_epsilon=5.0,
-                              numerical_epsilon=0.1,
+                              time_epsilon=0.1,
                               early_stop=True,
                               attackable_features="all",
                               enable_time_shifting=False):
@@ -474,9 +480,9 @@ class GradientAscentAttacker(Evaluation):
             prefix_len: Length of prefix
             max_iterations: Maximum number of gradient ascent steps
             embedding_step_size: Learning rate for embedding perturbations
-            numerical_step_size: Learning rate for numerical feature perturbations
+            time_step_size: Learning rate for time feature perturbations
             embedding_epsilon: Maximum allowed perturbation for embeddings (L_inf norm)
-            numerical_epsilon: Maximum allowed perturbation for numerical features (L_inf norm)
+            time_epsilon: Maximum allowed perturbation for time features (L_inf norm)
             early_stop: Stop when prediction becomes wrong
             attackable_features: Which features to attack. "all" attacks all features,
                                 "time_features" attacks only event_elapsed_time
@@ -493,16 +499,14 @@ class GradientAscentAttacker(Evaluation):
         if attackable_features not in ["all", "time_features"]:
             raise ValueError(f"attackable_features must be 'all' or 'time_features', got '{attackable_features}'")
         
-        # Determine which numerical features to attack
+        # Determine which numerical features to attack (only time features receive perturbation)
         if attackable_features == "time_features":
-            # Find index of event_elapsed_time
-            if "event_elapsed_time" not in self.all_num_attributes:
+            if "event_elapsed_time" not in self.prefix_num_attributes:
                 raise ValueError("event_elapsed_time not found in numerical attributes")
-            event_elapsed_time_idx = self.all_num_attributes.index("event_elapsed_time")
+            event_elapsed_time_idx = self.prefix_num_attributes.index("event_elapsed_time")
             attackable_num_indices = {event_elapsed_time_idx}
         else:
-            # Attack all numerical features
-            attackable_num_indices = set(range(len(prefix[1])))
+            attackable_num_indices = set(self._time_feature_prefix_indices)
         
         # Clone prefix and prepare for gradients
         # For numerical features: only set requires_grad for attackable ones
@@ -517,7 +521,7 @@ class GradientAscentAttacker(Evaluation):
         base_embeddings = []
         for i, (cat_tensor, embed_layer) in enumerate(zip(prefix[0], self.embedding_layers)):
             # Get base embeddings
-            base_embeds = embed_layer(cat_tensor)  # [batch, seq_len, embed_dim]
+            base_embeds = embed_layer(cat_tensor).detach()  # [batch, seq_len, embed_dim]
             base_embeddings.append(base_embeds)
             
             # Create learnable perturbation only if attacking all features
@@ -650,23 +654,27 @@ class GradientAscentAttacker(Evaluation):
                 
                 # Gradient ascent step 
                 with torch.no_grad():
-                    # Update embedding perturbations only if attacking all features
+                    # Update embedding perturbations using normalized gradient
                     if attackable_features == "all":
                         for embed_pert in embedding_perturbations:
                             if embed_pert.grad is not None:
-                                perturbation = embedding_step_size * embed_pert.grad.sign()
+                                grad = embed_pert.grad
+                                grad_norm = grad.norm()
+                                if grad_norm > 0:
+                                    perturbation = embedding_step_size * (grad / grad_norm)
+                                else:
+                                    perturbation = torch.zeros_like(grad)
                                 embed_pert.add_(perturbation)
                                 embed_pert.clamp_(-embedding_epsilon, embedding_epsilon)
                     
-                    # Update numerical features only for attackable ones
+                    # Update time features using sign-based updates
                     for i, num_t in enumerate(perturbed_prefix[1]):
                         if i in attackable_num_indices and num_t.grad is not None:
-                            perturbation = numerical_step_size * num_t.grad.sign()
-                            num_t.add_(perturbation)
+                            num_t.add_(time_step_size * num_t.grad.sign())
                             orig_tensor = prefix[1][i]
                             num_t.clamp_(
-                                orig_tensor - numerical_epsilon,
-                                orig_tensor + numerical_epsilon
+                                orig_tensor - time_epsilon,
+                                orig_tensor + time_epsilon
                             )
                             if i in self._nonneg_encoded_floors:
                                 num_t.clamp_(min=self._nonneg_encoded_floors[i])
@@ -724,9 +732,9 @@ class GradientAscentAttacker(Evaluation):
     def attack_predefined_prefixes(self,
                                    max_iterations=100,
                                    embedding_step_size=0.5,
-                                   numerical_step_size=0.01,
+                                   time_step_size=0.01,
                                    embedding_epsilon=5.0,
-                                   numerical_epsilon=0.1,
+                                   time_epsilon=0.1,
                                    early_stop=True,
                                    attackable_features="all",
                                    enable_time_shifting=False):
@@ -736,9 +744,9 @@ class GradientAscentAttacker(Evaluation):
         Args:
             max_iterations: Maximum number of gradient ascent steps per attack
             embedding_step_size: Learning rate for embedding perturbations
-            numerical_step_size: Learning rate for numerical feature perturbations
+            time_step_size: Learning rate for time feature perturbations
             embedding_epsilon: Maximum allowed perturbation for embeddings (L_inf norm)
-            numerical_epsilon: Maximum allowed perturbation for numerical features (L_inf norm)
+            time_epsilon: Maximum allowed perturbation for time features (L_inf norm)
             early_stop: Stop when prediction becomes wrong
             attackable_features: Which features to attack. "all" attacks all features,
                                 "time_features" attacks only event_elapsed_time
@@ -785,9 +793,9 @@ class GradientAscentAttacker(Evaluation):
                 prefix_len=prefix_len,
                 max_iterations=max_iterations,
                 embedding_step_size=embedding_step_size,
-                numerical_step_size=numerical_step_size,
+                time_step_size=time_step_size,
                 embedding_epsilon=embedding_epsilon,
-                numerical_epsilon=numerical_epsilon,
+                time_epsilon=time_epsilon,
                 early_stop=early_stop,
                 attackable_features=attackable_features,
                 enable_time_shifting=enable_time_shifting
