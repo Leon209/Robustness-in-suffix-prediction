@@ -1,0 +1,69 @@
+============================================================
+Summary Statistics: Helpdesk — redo_activity
+============================================================
+
+Attack Success Rate
+  U-ED-LSTM: 0.6268
+  U-ED-LSTM (adv-retrain): 0.7283
+
+Length Match Rate
+  U-ED-LSTM: 0.3826
+  U-ED-LSTM (adv-retrain): 0.2946
+
+Clean DLS
+  U-ED-LSTM: 0.7587
+  U-ED-LSTM (adv-retrain): 0.7937
+
+Perturbed DLS
+  U-ED-LSTM: 0.5613
+  U-ED-LSTM (adv-retrain): 0.5554
+
+chrF Score (clean)
+  U-ED-LSTM: 0.5856
+  U-ED-LSTM (adv-retrain): 0.5611
+
+chrF Score (perturbed)
+  U-ED-LSTM: 0.4422
+  U-ED-LSTM (adv-retrain): 0.4397
+
+ROUGE-L (clean)
+  U-ED-LSTM: 0.5932
+  U-ED-LSTM (adv-retrain): 0.5385
+
+ROUGE-L (perturbed)
+  U-ED-LSTM: 0.5166
+  U-ED-LSTM (adv-retrain): 0.5098
+
+NLL (clean)
+  U-ED-LSTM: 20.3031
+  U-ED-LSTM (adv-retrain): 21.4807
+
+NLL (perturbed)
+  U-ED-LSTM: 21.1698
+  U-ED-LSTM (adv-retrain): 21.7822
+
+Wasserstein Distance
+  U-ED-LSTM: 0.6458
+  U-ED-LSTM (adv-retrain): 0.7074
+
+Remaining Time MAE clean (d)
+  U-ED-LSTM: 10.3652
+  U-ED-LSTM (adv-retrain): 11.1372
+
+Remaining Time MAE pert (d)
+  U-ED-LSTM: 12.3986
+  U-ED-LSTM (adv-retrain): 12.5344
+
+Support Correct (clean)
+  U-ED-LSTM: 0.1182
+  U-ED-LSTM (adv-retrain): 0.0671
+
+Support Correct (perturbed)
+  U-ED-LSTM: 0.0806
+  U-ED-LSTM (adv-retrain): 0.0540
+
+============================================================
+Total Evaluations
+============================================================
+  U-ED-LSTM: 2444
+  U-ED-LSTM (adv-retrain): 2444
