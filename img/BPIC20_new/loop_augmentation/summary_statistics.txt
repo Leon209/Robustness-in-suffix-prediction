@@ -1,0 +1,69 @@
+============================================================
+Summary Statistics: BPIC20 — loop_augmentation
+============================================================
+
+Attack Success Rate
+  U-ED-LSTM: 0.2755
+  Camargo-LSTM: 0.4306
+
+Length Match Rate
+  U-ED-LSTM: 0.7245
+  Camargo-LSTM: 1.0000
+
+Clean DLS
+  U-ED-LSTM: 0.7010
+  Camargo-LSTM: 0.0010
+
+Perturbed DLS
+  U-ED-LSTM: 0.6699
+  Camargo-LSTM: 0.0024
+
+chrF Score (clean)
+  U-ED-LSTM: 0.5230
+  Camargo-LSTM: 0.0195
+
+chrF Score (perturbed)
+  U-ED-LSTM: 0.5126
+  Camargo-LSTM: 0.0340
+
+ROUGE-L (clean)
+  U-ED-LSTM: 0.8412
+  Camargo-LSTM: 0.0074
+
+ROUGE-L (perturbed)
+  U-ED-LSTM: 0.7942
+  Camargo-LSTM: 0.0119
+
+NLL (clean)
+  U-ED-LSTM: 2.1603
+  Camargo-LSTM: 23.0259
+
+NLL (perturbed)
+  U-ED-LSTM: 2.4169
+  Camargo-LSTM: 23.0259
+
+Wasserstein Distance
+  U-ED-LSTM: 0.1405
+  Camargo-LSTM: 0.8949
+
+Remaining Time MAE clean (d)
+  U-ED-LSTM: 7.1366
+  Camargo-LSTM: 0.0000
+
+Remaining Time MAE pert (d)
+  U-ED-LSTM: 9.7171
+  Camargo-LSTM: 0.0000
+
+Support Correct (clean)
+  U-ED-LSTM: 0.1694
+  Camargo-LSTM: 0.0000
+
+Support Correct (perturbed)
+  U-ED-LSTM: 0.1483
+  Camargo-LSTM: 0.0000
+
+============================================================
+Total Evaluations
+============================================================
+  U-ED-LSTM: 432
+  Camargo-LSTM: 432
