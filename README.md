@@ -24,8 +24,7 @@ A framework for generating a range of attacks to empirically evaluate the robust
 │   │   └── visualize_perturbations.ipynb
 │   └── evaluator/       # Evaluates the evaluation_results
 │       ├── compare_robustness_models.ipynb
-│       ├── automated_compare_robustness_models.ipynb
-│       ├── salency_map.ipynb
+│       ├── automated_compare_robustness_models.ipynb          # Main notebook for the creation of robustness charts
 │       ├── adversarial_retraining_asr.ipynb
 │       ├── robustness_charts.py
 │       ├── adversarial_sample_selector.py
